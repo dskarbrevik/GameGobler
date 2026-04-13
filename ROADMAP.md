@@ -75,29 +75,52 @@ Goal: Non-technical users can download and run GameGobler with minimal setup.
 | 3.3 | GitHub Releases workflow                    | Done        | `.github/workflows/release.yml` — `v*` tag trigger; matrix build (Linux, macOS, Windows); PyInstaller + `softprops/action-gh-release` |
 | 3.4 | First-run wizard                            | Done        | `SetupWizard` component shown when `library_path` is empty; guided path selection; saves settings and transitions to main UI |
 | 3.5 | In-app update check                         | Done        | `GET /api/version` compares `__version__` against latest GitHub Release; sidebar banner with link when update available; 1 h stale time |
-| 3.6 | Package manager distribution                | Not started | Homebrew formula (macOS), Flatpak (Linux), winget manifest (Windows) |
-| 3.7 | Landing page / docs site                    | Not started | Simple GitHub Pages site: what it does, download links, quick-start guide |
+| 3.6 | Package manager distribution                | Done        | `packaging/` dir: Homebrew formula, Flatpak manifest + metainfo, winget manifests; `update-manifests.sh` patches SHA256s from a release |
+| 3.7 | Landing page / docs site                    | Done        | `docs/index.html` — static landing page; `.github/workflows/pages.yml` deploys to GitHub Pages on push to main |
 
 **Exit criteria:** A retro gaming enthusiast can download a single file, run it, and manage their ROM library without touching a terminal.
 
 ---
 
-## Phase 4: Polish — Make It Delightful
+## Phase 4: Native Desktop App — Make It a Real App
+
+Goal: GameGobler feels like a native desktop application — not a CLI tool that opens a browser.
+
+**Approach:** Wrap the existing React frontend + Python backend in **Tauri v2**. The React UI renders in a native OS webview window; the Python backend runs as a Tauri sidecar process. Tauri handles installers, code signing, auto-updates, and native window management.
+
+| #   | Task                                        | Status      | Notes |
+|-----|---------------------------------------------|-------------|-------|
+| 4.1 | Tauri v2 project scaffolding                | Done        | `web/src-tauri/` with `tauri.conf.json`, Rust boilerplate, capabilities, icons; `@tauri-apps/cli` + `@tauri-apps/api` added to `web/package.json` |
+| 4.2 | Python backend as Tauri sidecar             | Done        | `externalBin` in `tauri.conf.json`; `tauri-plugin-shell` for sidecar spawn; Rust `lib.rs` launches `gamegobler-api`, logs output, kills on window close; dev wrapper script in `binaries/` |
+| 4.3 | Auto-open UI in native window               | Done        | `BackendGate` component polls `/api/health` with spinner splash; CSS splash screen in `index.css`; wired into `main.tsx` |
+| 4.4 | App icons & metadata                        | Done        | Custom SVG icon with GG/controller motif; `tauri icon` generated all sizes (`.icns`, `.ico`, `.png`); bundle ID `com.github.dskarbrevik.gamegobler` |
+| 4.5 | macOS `.dmg` + code signing + notarization  | Config ready | `tauri.conf.json` + release workflow configured; needs `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` secrets |
+| 4.6 | Windows `.msi` installer                    | Config ready | `tauri-action` produces `.msi` via WiX; needs `WINDOWS_CERTIFICATE` + `WINDOWS_CERTIFICATE_PASSWORD` secrets |
+| 4.7 | Linux `.AppImage` + `.deb`                  | Config ready | `tauri-action` produces both; release workflow configured; no signing needed |
+| 4.8 | System tray integration                     | Done        | Tray icon with "Show GameGobler" / "Quit" menu; window hides on close (keeps backend alive); click tray to re-show; sidecar killed on quit |
+| 4.9 | Tauri auto-updater                          | Done        | `tauri-plugin-updater` registered; background update check on startup; signing key generated; `createUpdaterArtifacts: true` in config; `.tar.gz` updater artifact verified |
+| 4.10| Release workflow update                     | Done        | Two-stage workflow: `build-sidecar` (PyInstaller per-platform) → `build-tauri` (`tauri-action` produces `.dmg`, `.msi`, `.AppImage`, `.deb`); auto-creates GitHub Release |
+
+**Exit criteria:** Users download a native installer, double-click an app icon, and get a windowed experience with no terminal or browser required. macOS builds pass Gatekeeper without warnings.
+
+---
+
+## Phase 5: Polish — Make It Delightful
 
 Goal: Quality-of-life features that make GameGobler the best tool for the job.
 
 | #   | Task                                        | Status      | Notes |
 |-----|---------------------------------------------|-------------|-------|
-| 4.1 | Multi-disc / CUE+BIN handling              | Not started | Detect related files (`.cue`+`.bin`, `.gdi`+`.bin`+`.raw`); transfer as a unit |
-| 4.2 | `.7z` extraction support                    | Not started | `py7zr` library; handle alongside `.zip` in unzip-on-transfer |
-| 4.3 | Bulk operations                             | Not started | Multi-select games, batch add/remove, select-all-filtered |
-| 4.4 | Device profiles / presets                   | Not started | "Miyoo Mini Plus", "Anbernic RG35XX", "AYN Odin" — auto-configure paths, supported systems, folder structure |
-| 4.5 | Drag-and-drop transfers                     | Not started | Drag game from library panel to device panel |
-| 4.6 | Redump / TOSEC filename parsing             | Not started | Extend rom_parser to handle alternate naming conventions |
-| 4.7 | Light theme / theme toggle                  | Not started | CSS variable swap; persist preference in settings |
-| 4.8 | Playlist / collection support               | Not started | User-created game lists; sync a playlist to a device in one action |
-| 4.9 | Duplicate detection                         | Not started | Identify same game across regions/revisions; suggest cleanup |
-| 4.10| Transfer queue                              | Not started | Queue multiple transfers; background processing with progress dashboard |
+| 5.1 | Multi-disc / CUE+BIN handling              | Not started | Detect related files (`.cue`+`.bin`, `.gdi`+`.bin`+`.raw`); transfer as a unit |
+| 5.2 | `.7z` extraction support                    | Not started | `py7zr` library; handle alongside `.zip` in unzip-on-transfer |
+| 5.3 | Bulk operations                             | Not started | Multi-select games, batch add/remove, select-all-filtered |
+| 5.4 | Device profiles / presets                   | Not started | "Miyoo Mini Plus", "Anbernic RG35XX", "AYN Odin" — auto-configure paths, supported systems, folder structure |
+| 5.5 | Drag-and-drop transfers                     | Not started | Drag game from library panel to device panel |
+| 5.6 | Redump / TOSEC filename parsing             | Not started | Extend rom_parser to handle alternate naming conventions |
+| 5.7 | Light theme / theme toggle                  | Not started | CSS variable swap; persist preference in settings |
+| 5.8 | Playlist / collection support               | Not started | User-created game lists; sync a playlist to a device in one action |
+| 5.9 | Duplicate detection                         | Not started | Identify same game across regions/revisions; suggest cleanup |
+| 5.10| Transfer queue                              | Not started | Queue multiple transfers; background processing with progress dashboard |
 
 **Exit criteria:** Power users love it; casual users find it intuitive.
 
@@ -121,11 +144,9 @@ Items not yet prioritized:
 
 | Version | Milestone |
 |---------|-----------|
-| 0.1.0   | Current prototype (Linux-focused, dev-only) |
-| 0.2.0   | Phase 1 complete — cross-platform foundation |
-| 0.3.0   | Phase 2 complete — CI, tests, resilience |
-| 1.0.0   | Phase 3 complete — first public release with single-binary distribution |
-| 1.x.x   | Phase 4 — iterative feature releases |
+| 0.1.0   | First public release — native desktop app via Tauri with full Phase 1–4 features |
+| 0.x.x   | Phase 5 — iterative feature releases (multi-disc, bulk ops, device profiles, etc.) |
+| 1.0.0   | Feature-complete — all Phase 5 items done, stable API |
 
 ---
 

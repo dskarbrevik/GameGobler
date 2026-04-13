@@ -1,0 +1,32 @@
+app-id: com.github.dskarbrevik.GameGobler
+runtime: org.freedesktop.Platform
+runtime-version: "23.08"
+sdk: org.freedesktop.Sdk
+command: gamegobler
+
+finish-args:
+  - --share=network       # Serve web UI, cover scraping, ADB over network
+  - --filesystem=host     # ROM library and USB volumes
+  - --device=all          # USB device access for volumes and ADB
+
+modules:
+  - name: gamegobler
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 GameGobler-linux /app/bin/gamegobler
+    sources:
+      - type: file
+        url: https://github.com/dskarbrevik/GameGobler/releases/download/v0.1.0/GameGobler-linux
+        sha256: PLACEHOLDER_LINUX_SHA256
+        dest-filename: GameGobler-linux
+
+  - name: metadata
+    buildsystem: simple
+    build-commands:
+      - install -Dm644 com.github.dskarbrevik.GameGobler.desktop /app/share/applications/com.github.dskarbrevik.GameGobler.desktop
+      - install -Dm644 com.github.dskarbrevik.GameGobler.metainfo.xml /app/share/metainfo/com.github.dskarbrevik.GameGobler.metainfo.xml
+    sources:
+      - type: file
+        path: com.github.dskarbrevik.GameGobler.desktop
+      - type: file
+        path: com.github.dskarbrevik.GameGobler.metainfo.xml

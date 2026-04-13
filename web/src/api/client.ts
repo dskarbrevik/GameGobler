@@ -10,7 +10,15 @@ import type {
   VersionInfo,
 } from "../types";
 
-const API_BASE = "/api";
+/**
+ * In Vite dev mode, the proxy forwards /api → localhost:8000/api.
+ * In Tauri production, the frontend loads from a local file so we need the
+ * full origin. The backend always runs on 127.0.0.1:8000.
+ */
+const API_BASE =
+  typeof window !== "undefined" && window.__TAURI_INTERNALS__
+    ? "http://127.0.0.1:8000/api"
+    : "/api";
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);

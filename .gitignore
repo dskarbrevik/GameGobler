@@ -19,3 +19,7 @@ web/dist/
 *.partial
 *-e
 downloads/
+
+# Tauri signing keys (never commit)
+tauri-updater.key
+tauri-updater.key.pub
