@@ -90,7 +90,7 @@ async def version() -> dict:
     try:
         async with httpx.AsyncClient(timeout=5) as client:
             resp = await client.get(
-                "https://api.github.com/repos/dskar/GameGobler/releases/latest",
+                "https://api.github.com/repos/dskarbrevik/GameGobler/releases/latest",
                 headers={"Accept": "application/vnd.github+json"},
             )
         if resp.status_code == 200:
