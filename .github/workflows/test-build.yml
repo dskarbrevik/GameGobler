@@ -149,3 +149,132 @@ jobs:
             web/src-tauri/target/release/bundle/**/*.AppImage
             web/src-tauri/target/release/bundle/**/*.deb
           retention-days: 7
+
+  smoke-test:
+    name: Smoke test – ${{ matrix.os }}
+    needs: build-tauri
+    if: inputs.platforms == 'all' || inputs.platforms == matrix.name
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            name: macos
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            name: windows
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Download app artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: app-${{ matrix.target }}
+          path: artifact/
+
+      - name: List artifacts
+        shell: bash
+        run: find artifact/ -type f | head -30
+
+      # ── Linux: extract AppImage and run ──
+      - name: "Linux: install deps & launch app"
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev
+
+          APPIMAGE=$(find artifact/ -name '*.AppImage' | head -1)
+          chmod +x "$APPIMAGE"
+          # AppImage needs FUSE; --appimage-extract avoids that
+          "$APPIMAGE" --appimage-extract
+          # Launch with virtual display (Tauri needs X11/Wayland)
+          xvfb-run --auto-servernum squashfs-root/gamegobler-tauri &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> "$GITHUB_ENV"
+
+      # ── macOS: mount DMG and launch ──
+      - name: "macOS: mount DMG & launch app"
+        if: runner.os == 'macOS'
+        run: |
+          DMG=$(find artifact/ -name '*.dmg' | head -1)
+          hdiutil attach "$DMG" -nobrowse -noverify
+          APP=$(find /Volumes -name 'GameGobler.app' -maxdepth 2 | head -1)
+          # Launch the app (opens in background)
+          open -a "$APP" --args --headless 2>/dev/null || "$APP/Contents/MacOS/gamegobler-tauri" &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> "$GITHUB_ENV"
+
+      # ── Windows: install MSI silently and launch ──
+      - name: "Windows: install MSI & launch app"
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Path artifact -Recurse -Filter '*.msi' | Select-Object -First 1
+          Write-Host "Installing $($msi.FullName)"
+          Start-Process msiexec -ArgumentList "/i `"$($msi.FullName)`" /quiet /norestart" -Wait
+          # Find the installed exe
+          $exe = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'gamegobler-tauri.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem -Path "C:\Program Files" -Recurse -Filter 'gamegobler-tauri.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+          Write-Host "Launching $($exe.FullName)"
+          $proc = Start-Process -FilePath $exe.FullName -PassThru
+          echo "APP_PID=$($proc.Id)" >> $env:GITHUB_ENV
+
+      # ── Health check (all platforms) ──
+      - name: Wait for backend health
+        shell: bash
+        run: |
+          echo "Waiting for backend to start..."
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+              echo "✓ /api/health responded after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "✗ Backend did not respond within 60s"
+          exit 1
+
+      - name: Verify API endpoints
+        shell: bash
+        run: |
+          echo "── /api/health ──"
+          curl -sf http://127.0.0.1:8000/api/health | tee /dev/stderr | grep -q "ok"
+          echo ""
+
+          echo "── /api/version ──"
+          curl -sf http://127.0.0.1:8000/api/version | tee /dev/stderr | grep -q "version"
+          echo ""
+
+          echo "── /api/settings ──"
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/settings)
+          echo "Status: $STATUS"
+          [ "$STATUS" -eq 200 ]
+
+          echo ""
+          echo "✓ All smoke tests passed"
+
+      # ── Cleanup ──
+      - name: Stop app (Linux/macOS)
+        if: always() && runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ -n "$APP_PID" ]; then
+            kill "$APP_PID" 2>/dev/null || true
+          fi
+          # Also kill any leftover sidecar
+          pkill -f gamegobler-api 2>/dev/null || true
+
+      - name: Stop app (Windows)
+        if: always() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:APP_PID) {
+            Stop-Process -Id $env:APP_PID -Force -ErrorAction SilentlyContinue
+          }
+          Get-Process -Name 'gamegobler*' -ErrorAction SilentlyContinue | Stop-Process -Force
