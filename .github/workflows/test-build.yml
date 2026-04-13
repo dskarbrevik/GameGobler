@@ -17,26 +17,37 @@ permissions:
   contents: read
 
 jobs:
+  prep:
+    name: Prepare matrix
+    runs-on: ubuntu-latest
+    outputs:
+      sidecar-matrix: ${{ steps.set.outputs.sidecar }}
+      tauri-matrix: ${{ steps.set.outputs.tauri }}
+    steps:
+      - id: set
+        run: |
+          if [ "${{ inputs.platforms }}" = "all" ]; then
+            SIDECAR='{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","sidecar":"gamegobler-api-x86_64-unknown-linux-gnu"},{"os":"macos-latest","target":"aarch64-apple-darwin","sidecar":"gamegobler-api-aarch64-apple-darwin"},{"os":"windows-latest","target":"x86_64-pc-windows-msvc","sidecar":"gamegobler-api-x86_64-pc-windows-msvc.exe"}]}'
+            TAURI='{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"},{"os":"macos-latest","target":"aarch64-apple-darwin"},{"os":"windows-latest","target":"x86_64-pc-windows-msvc"}]}'
+          elif [ "${{ inputs.platforms }}" = "linux" ]; then
+            SIDECAR='{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu","sidecar":"gamegobler-api-x86_64-unknown-linux-gnu"}]}'
+            TAURI='{"include":[{"os":"ubuntu-latest","target":"x86_64-unknown-linux-gnu"}]}'
+          elif [ "${{ inputs.platforms }}" = "macos" ]; then
+            SIDECAR='{"include":[{"os":"macos-latest","target":"aarch64-apple-darwin","sidecar":"gamegobler-api-aarch64-apple-darwin"}]}'
+            TAURI='{"include":[{"os":"macos-latest","target":"aarch64-apple-darwin"}]}'
+          elif [ "${{ inputs.platforms }}" = "windows" ]; then
+            SIDECAR='{"include":[{"os":"windows-latest","target":"x86_64-pc-windows-msvc","sidecar":"gamegobler-api-x86_64-pc-windows-msvc.exe"}]}'
+            TAURI='{"include":[{"os":"windows-latest","target":"x86_64-pc-windows-msvc"}]}'
+          fi
+          echo "sidecar=$SIDECAR" >> "$GITHUB_OUTPUT"
+          echo "tauri=$TAURI" >> "$GITHUB_OUTPUT"
+
   build-sidecar:
     name: Sidecar – ${{ matrix.os }}
-    if: inputs.platforms == 'all' || inputs.platforms == matrix.name
+    needs: prep
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            name: linux
-            target: x86_64-unknown-linux-gnu
-            sidecar: gamegobler-api-x86_64-unknown-linux-gnu
-          - os: macos-latest
-            name: macos
-            target: aarch64-apple-darwin
-            sidecar: gamegobler-api-aarch64-apple-darwin
-          - os: windows-latest
-            name: windows
-            target: x86_64-pc-windows-msvc
-            sidecar: gamegobler-api-x86_64-pc-windows-msvc.exe
-
+      matrix: ${{ fromJson(needs.prep.outputs.sidecar-matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -85,22 +96,10 @@ jobs:
 
   build-tauri:
     name: Tauri – ${{ matrix.os }}
-    needs: build-sidecar
-    if: inputs.platforms == 'all' || inputs.platforms == matrix.name
+    needs: [prep, build-sidecar]
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            name: linux
-            target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            name: macos
-            target: aarch64-apple-darwin
-          - os: windows-latest
-            name: windows
-            target: x86_64-pc-windows-msvc
-
+      matrix: ${{ fromJson(needs.prep.outputs.tauri-matrix) }}
     steps:
       - uses: actions/checkout@v4
 
@@ -152,23 +151,11 @@ jobs:
 
   smoke-test:
     name: Smoke test – ${{ matrix.os }}
-    needs: build-tauri
-    if: inputs.platforms == 'all' || inputs.platforms == matrix.name
+    needs: [prep, build-tauri]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            name: linux
-            target: x86_64-unknown-linux-gnu
-          - os: macos-latest
-            name: macos
-            target: aarch64-apple-darwin
-          - os: windows-latest
-            name: windows
-            target: x86_64-pc-windows-msvc
-
+      matrix: ${{ fromJson(needs.prep.outputs.tauri-matrix) }}
     steps:
       - name: Download app artifact
         uses: actions/download-artifact@v4
@@ -189,9 +176,7 @@ jobs:
 
           APPIMAGE=$(find artifact/ -name '*.AppImage' | head -1)
           chmod +x "$APPIMAGE"
-          # AppImage needs FUSE; --appimage-extract avoids that
           "$APPIMAGE" --appimage-extract
-          # Launch with virtual display (Tauri needs X11/Wayland)
           xvfb-run --auto-servernum squashfs-root/gamegobler-tauri &
           APP_PID=$!
           echo "APP_PID=$APP_PID" >> "$GITHUB_ENV"
@@ -203,7 +188,6 @@ jobs:
           DMG=$(find artifact/ -name '*.dmg' | head -1)
           hdiutil attach "$DMG" -nobrowse -noverify
           APP=$(find /Volumes -name 'GameGobler.app' -maxdepth 2 | head -1)
-          # Launch the app (opens in background)
           open -a "$APP" --args --headless 2>/dev/null || "$APP/Contents/MacOS/gamegobler-tauri" &
           APP_PID=$!
           echo "APP_PID=$APP_PID" >> "$GITHUB_ENV"
@@ -216,7 +200,6 @@ jobs:
           $msi = Get-ChildItem -Path artifact -Recurse -Filter '*.msi' | Select-Object -First 1
           Write-Host "Installing $($msi.FullName)"
           Start-Process msiexec -ArgumentList "/i `"$($msi.FullName)`" /quiet /norestart" -Wait
-          # Find the installed exe
           $exe = Get-ChildItem -Path "$env:LOCALAPPDATA\Programs" -Recurse -Filter 'gamegobler-tauri.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
           if (-not $exe) {
             $exe = Get-ChildItem -Path "C:\Program Files" -Recurse -Filter 'gamegobler-tauri.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -267,7 +250,6 @@ jobs:
           if [ -n "$APP_PID" ]; then
             kill "$APP_PID" 2>/dev/null || true
           fi
-          # Also kill any leftover sidecar
           pkill -f gamegobler-api 2>/dev/null || true
 
       - name: Stop app (Windows)
