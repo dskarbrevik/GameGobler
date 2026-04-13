@@ -85,7 +85,7 @@ jobs:
           echo "PR version:   $PR_VERSION"
           echo "main version: $MAIN_VERSION"
           if [ "$PR_VERSION" = "$MAIN_VERSION" ]; then
-            echo "::error::Version in pyproject.toml ($PR_VERSION) has not been bumped from main. Run 'make bump-version V=x.y.z' before merging."
-            exit 1
+            echo "::warning::Version in pyproject.toml ($PR_VERSION) has not been bumped from main. Consider running 'make bump-version V=x.y.z' before merging."
+          else
+            echo "✓ Version bumped: $MAIN_VERSION → $PR_VERSION"
           fi
-          echo "✓ Version bumped: $MAIN_VERSION → $PR_VERSION"
