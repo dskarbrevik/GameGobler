@@ -1,0 +1,151 @@
+name: Test Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: "Platforms to build"
+        type: choice
+        default: all
+        options:
+          - all
+          - macos
+          - linux
+          - windows
+
+permissions:
+  contents: read
+
+jobs:
+  build-sidecar:
+    name: Sidecar – ${{ matrix.os }}
+    if: inputs.platforms == 'all' || inputs.platforms == matrix.name
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+            target: x86_64-unknown-linux-gnu
+            sidecar: gamegobler-api-x86_64-unknown-linux-gnu
+          - os: macos-latest
+            name: macos
+            target: aarch64-apple-darwin
+            sidecar: gamegobler-api-aarch64-apple-darwin
+          - os: windows-latest
+            name: windows
+            target: x86_64-pc-windows-msvc
+            sidecar: gamegobler-api-x86_64-pc-windows-msvc.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: uv sync --group dev
+
+      - name: Build frontend
+        working-directory: web
+        run: |
+          npm ci
+          npx vite build
+
+      - name: Package backend with PyInstaller
+        run: uv run pyinstaller gamegobler.spec --noconfirm
+
+      - name: Place sidecar binary
+        shell: bash
+        run: |
+          mkdir -p web/src-tauri/binaries
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp dist/GameGobler.exe "web/src-tauri/binaries/${{ matrix.sidecar }}"
+          else
+            cp dist/GameGobler "web/src-tauri/binaries/${{ matrix.sidecar }}"
+            chmod +x "web/src-tauri/binaries/${{ matrix.sidecar }}"
+          fi
+
+      - name: Upload sidecar
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target }}
+          path: web/src-tauri/binaries/${{ matrix.sidecar }}
+
+  build-tauri:
+    name: Tauri – ${{ matrix.os }}
+    needs: build-sidecar
+    if: inputs.platforms == 'all' || inputs.platforms == matrix.name
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            name: macos
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            name: windows
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Download sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target }}
+          path: web/src-tauri/binaries/
+
+      - name: Make sidecar executable
+        if: runner.os != 'Windows'
+        run: chmod +x web/src-tauri/binaries/*
+
+      - name: Build Tauri app
+        working-directory: web
+        run: npx tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-${{ matrix.target }}
+          path: |
+            web/src-tauri/target/release/bundle/**/*.dmg
+            web/src-tauri/target/release/bundle/**/*.app
+            web/src-tauri/target/release/bundle/**/*.msi
+            web/src-tauri/target/release/bundle/**/*.AppImage
+            web/src-tauri/target/release/bundle/**/*.deb
+          retention-days: 7
