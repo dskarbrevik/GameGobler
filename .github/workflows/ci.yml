@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: Python checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Ruff lint
+        run: uv run ruff check gamegobler
+
+      - name: Ruff format
+        run: uv run ruff format --check gamegobler
+
+      - name: Pyright
+        run: uv run pyright gamegobler
+
+      - name: Pytest
+        run: uv run pytest --tb=short -q
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: ESLint
+        run: npx eslint .
+
+      - name: TypeScript
+        run: npx tsc -b
+
+      - name: Vitest
+        run: npx vitest run
+
+      - name: Build
+        run: npx vite build
+
+  version-check:
+    name: Version bump check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compare version against main
+        run: |
+          PR_VERSION=$(grep '^version' pyproject.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          MAIN_VERSION=$(git show origin/main:pyproject.toml | grep '^version' | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          echo "PR version:   $PR_VERSION"
+          echo "main version: $MAIN_VERSION"
+          if [ "$PR_VERSION" = "$MAIN_VERSION" ]; then
+            echo "::warning::Version in pyproject.toml ($PR_VERSION) has not been bumped from main. Consider running 'make bump-version V=x.y.z' before merging."
+          else
+            echo "✓ Version bumped: $MAIN_VERSION → $PR_VERSION"
+          fi

@@ -90,3 +90,10 @@ export interface ScrapeEvent {
   errors: number;
   message?: string;
 }
+
+export interface VersionInfo {
+  version: string;
+  latest: string | null;
+  update_available: boolean;
+  release_url: string | null;
+}

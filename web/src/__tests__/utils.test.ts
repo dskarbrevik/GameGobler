@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatBytes } from "../utils";
+import { formatBytes, formatPercent } from "../utils";
 
 describe("formatBytes", () => {
   it("returns '0 B' for zero", () => {
@@ -24,5 +24,23 @@ describe("formatBytes", () => {
 
   it("formats with decimals", () => {
     expect(formatBytes(1536)).toBe("1.5 KB");
+  });
+});
+
+describe("formatPercent", () => {
+  it("returns 0 when total is 0", () => {
+    expect(formatPercent(100, 0)).toBe(0);
+  });
+
+  it("calculates percentage", () => {
+    expect(formatPercent(50, 200)).toBe(25);
+  });
+
+  it("rounds to nearest integer", () => {
+    expect(formatPercent(1, 3)).toBe(33);
+  });
+
+  it("returns 100 when used equals total", () => {
+    expect(formatPercent(1024, 1024)).toBe(100);
   });
 });

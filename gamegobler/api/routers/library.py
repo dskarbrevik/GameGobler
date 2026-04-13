@@ -6,56 +6,108 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 
+from gamegobler import settings
 from gamegobler.api.models import GameFile, SearchResult, SystemInfo
 from gamegobler.cover_scraper import SYSTEM_MAP, scrape_covers
 from gamegobler.rom_parser import parse_rom_filename
 
 router = APIRouter()
 
-# Default library path - can be overridden via settings
-SETTINGS_PATH = Path.home() / ".gamegobler" / "settings.json"
-
 # Known ROM / game file extensions (lowercase, with dot)
 ROM_EXTENSIONS: set[str] = {
     # Cartridge ROMs
-    ".nes", ".unf", ".unif", ".fds",  # NES / Famicom
-    ".sfc", ".smc", ".fig", ".swc",  # SNES
-    ".z64", ".n64", ".v64",  # N64
-    ".gb", ".gbc",  # Game Boy / Color
+    ".nes",
+    ".unf",
+    ".unif",
+    ".fds",  # NES / Famicom
+    ".sfc",
+    ".smc",
+    ".fig",
+    ".swc",  # SNES
+    ".z64",
+    ".n64",
+    ".v64",  # N64
+    ".gb",
+    ".gbc",  # Game Boy / Color
     ".gba",  # Game Boy Advance
-    ".nds", ".dsi",  # Nintendo DS
-    ".3ds", ".cia", ".cxi", ".app",  # Nintendo 3DS
-    ".nsp", ".xci",  # Nintendo Switch
-    ".wud", ".wux", ".wua", ".rpx",  # Wii U
-    ".wbfs", ".iso", ".ciso", ".wia", ".rvz", ".gcz", ".gcm",  # Wii / GameCube
-    ".sms", ".gg",  # Sega Master System / Game Gear
-    ".md", ".gen", ".bin", ".smd",  # Sega Genesis / Mega Drive
+    ".nds",
+    ".dsi",  # Nintendo DS
+    ".3ds",
+    ".cia",
+    ".cxi",
+    ".app",  # Nintendo 3DS
+    ".nsp",
+    ".xci",  # Nintendo Switch
+    ".wud",
+    ".wux",
+    ".wua",
+    ".rpx",  # Wii U
+    ".wbfs",
+    ".iso",
+    ".ciso",
+    ".wia",
+    ".rvz",
+    ".gcz",
+    ".gcm",  # Wii / GameCube
+    ".sms",
+    ".gg",  # Sega Master System / Game Gear
+    ".md",
+    ".gen",
+    ".bin",
+    ".smd",  # Sega Genesis / Mega Drive
     ".32x",  # Sega 32X
-    ".cue", ".chd", ".pbp", ".mds", ".mdf", ".ccd",  # Disc-based (multi-system)
+    ".cue",
+    ".chd",
+    ".pbp",
+    ".mds",
+    ".mdf",
+    ".ccd",  # Disc-based (multi-system)
     ".gdi",  # Dreamcast
-    ".pce", ".sgx",  # TurboGrafx-16 / PC Engine
+    ".pce",
+    ".sgx",  # TurboGrafx-16 / PC Engine
     ".a26",  # Atari 2600
     ".a52",  # Atari 5200
     ".a78",  # Atari 7800
     ".lnx",  # Atari Lynx
-    ".j64", ".jag",  # Atari Jaguar
+    ".j64",
+    ".jag",  # Atari Jaguar
     ".col",  # ColecoVision
     ".int",  # Intellivision
     ".vec",  # Vectrex
-    ".ws", ".wsc",  # WonderSwan / Color
-    ".ngp", ".ngc",  # Neo Geo Pocket / Color
+    ".ws",
+    ".wsc",  # WonderSwan / Color
+    ".ngp",
+    ".ngc",  # Neo Geo Pocket / Color
     ".psx",  # PlayStation
     ".vpk",  # PS Vita
-    ".xbe", ".xiso",  # Xbox
+    ".xbe",
+    ".xiso",  # Xbox
     # Compressed archives containing ROMs
-    ".zip", ".7z", ".rar", ".gz",
+    ".zip",
+    ".7z",
+    ".rar",
+    ".gz",
     # Disk images
-    ".dsk", ".d64", ".d71", ".d81", ".tap", ".t64", ".prg", ".crt",  # C64/Amiga
-    ".adf", ".adz", ".ipf", ".hdf",  # Amiga
-    ".rom", ".mx1", ".mx2",  # MSX
-    ".cas", ".wav",  # Cassette-based
+    ".dsk",
+    ".d64",
+    ".d71",
+    ".d81",
+    ".tap",
+    ".t64",
+    ".prg",
+    ".crt",  # C64/Amiga
+    ".adf",
+    ".adz",
+    ".ipf",
+    ".hdf",  # Amiga
+    ".rom",
+    ".mx1",
+    ".mx2",  # MSX
+    ".cas",
+    ".wav",  # Cassette-based
     # Standalone / ports
-    ".sh", ".desktop",  # Linux scripts / shortcuts for ports
+    ".sh",
+    ".desktop",  # Linux scripts / shortcuts for ports
 }
 
 
@@ -68,13 +120,7 @@ def _is_game_file(path: Path) -> bool:
 
 def _get_library_path() -> Path:
     """Get the configured library base path."""
-    if SETTINGS_PATH.exists():
-        with open(SETTINGS_PATH) as f:
-            settings = json.load(f)
-            if "library_path" in settings:
-                return Path(settings["library_path"])
-    # Default to downloads/roms in the project
-    return Path(__file__).resolve().parent.parent.parent.parent / "downloads" / "roms"
+    return settings.get_library_path()
 
 
 @router.get("/search")
@@ -158,7 +204,11 @@ async def list_games(system_name: str) -> list[GameFile]:
         if f.is_file() and _is_game_file(f):
             has_cover = _has_cover(f.stem, cover_dir) if cover_dir else False
             meta = parse_rom_filename(f.name)
-            games.append(GameFile(name=f.name, size=f.stat().st_size, has_cover=has_cover, meta=meta))
+            games.append(
+                GameFile(
+                    name=f.name, size=f.stat().st_size, has_cover=has_cover, meta=meta
+                )
+            )
 
     return games
 
@@ -271,9 +321,7 @@ async def scrape_system_covers(system_name: str):
         )
 
     game_stems = [
-        f.stem
-        for f in sorted(system_dir.iterdir())
-        if f.is_file() and _is_game_file(f)
+        f.stem for f in sorted(system_dir.iterdir()) if f.is_file() and _is_game_file(f)
     ]
     if not game_stems:
         raise HTTPException(status_code=400, detail="No games in this system")

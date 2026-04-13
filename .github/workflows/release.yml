@@ -1,0 +1,156 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-sidecar:
+    name: Build sidecar – ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            sidecar: gamegobler-api-x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            sidecar: gamegobler-api-aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            sidecar: gamegobler-api-x86_64-pc-windows-msvc.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: uv sync --group dev
+
+      - name: Build frontend (for PyInstaller bundle)
+        working-directory: web
+        run: |
+          npm ci
+          npx vite build
+
+      - name: Package Python backend with PyInstaller
+        run: uv run pyinstaller gamegobler.spec --noconfirm
+
+      - name: Place sidecar binary
+        shell: bash
+        run: |
+          mkdir -p web/src-tauri/binaries
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp dist/GameGobler.exe "web/src-tauri/binaries/${{ matrix.sidecar }}"
+          else
+            cp dist/GameGobler "web/src-tauri/binaries/${{ matrix.sidecar }}"
+            chmod +x "web/src-tauri/binaries/${{ matrix.sidecar }}"
+          fi
+
+      - name: Upload sidecar
+        uses: actions/upload-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target }}
+          path: web/src-tauri/binaries/${{ matrix.sidecar }}
+
+  build-tauri:
+    name: Build Tauri – ${{ matrix.os }}
+    needs: build-sidecar
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Download sidecar
+        uses: actions/download-artifact@v4
+        with:
+          name: sidecar-${{ matrix.target }}
+          path: web/src-tauri/binaries/
+
+      - name: Make sidecar executable
+        if: runner.os != 'Windows'
+        run: chmod +x web/src-tauri/binaries/*
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # ── macOS code signing & notarization ──
+          # Set these secrets in repo Settings → Secrets:
+          #   APPLE_CERTIFICATE        - Base64-encoded .p12 Developer ID cert
+          #   APPLE_CERTIFICATE_PASSWORD - Password for the .p12
+          #   APPLE_SIGNING_IDENTITY   - e.g. "Developer ID Application: Name (TEAMID)"
+          #   APPLE_ID                 - Apple ID email
+          #   APPLE_PASSWORD           - App-specific password
+          #   APPLE_TEAM_ID            - 10-char team ID
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # ── Windows code signing ──
+          # Set these secrets for Authenticode signing:
+          #   WINDOWS_CERTIFICATE      - Base64-encoded .pfx
+          #   WINDOWS_CERTIFICATE_PASSWORD - Password for the .pfx
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # ── Tauri updater signing key ──
+          # Generate with: npx tauri signer generate -w ~/.tauri/gamegobler.key
+          #   TAURI_SIGNING_PRIVATE_KEY       - Contents of the .key file
+          #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - Password used during generation
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: web
+          tagName: ${{ github.ref_name }}
+          releaseName: "GameGobler ${{ github.ref_name }}"
+          releaseBody: "See the full changelog in the GitHub release notes."
+          releaseDraft: false
+          prerelease: false
+          updaterJsonPreferNsis: true

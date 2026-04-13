@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.dskarbrevik.GameGobler</id>
+  <name>GameGobler</name>
+  <summary>ROM library manager for microSD cards and Android devices</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <description>
+    <p>
+      GameGobler is a cross-platform tool that makes adding and removing games
+      to microSD cards and Android devices a seamless experience. Browse your
+      ROM library with cover art, discover connected devices, and transfer games
+      with progress tracking.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Browse your ROM library organized by system with cover art</li>
+      <li>Discover connected USB volumes and Android devices automatically</li>
+      <li>Transfer games with progress tracking</li>
+      <li>Sync a curated game set to a device</li>
+      <li>Scrape cover art from libretro-thumbnails</li>
+    </ul>
+  </description>
+  <url type="homepage">https://dskarbrevik.github.io/GameGobler</url>
+  <url type="bugtracker">https://github.com/dskarbrevik/GameGobler/issues</url>
+  <url type="vcs-browser">https://github.com/dskarbrevik/GameGobler</url>
+  <launchable type="desktop-id">com.github.dskarbrevik.GameGobler.desktop</launchable>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2025-07-22" />
+  </releases>
+</component>

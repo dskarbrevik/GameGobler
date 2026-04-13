@@ -14,6 +14,7 @@ import {
   removeGameFromDevice,
   fetchSettings,
   updateSettings,
+  fetchVersion,
 } from "../api/client";
 import type { Settings } from "../types";
 
@@ -143,5 +144,13 @@ export function useDeviceGames(deviceId: string | null, system: string | null) {
     queryKey: ["deviceGames", deviceId, system],
     queryFn: () => fetchDeviceGames(deviceId!, system!),
     enabled: !!deviceId && !!system,
+  });
+}
+
+export function useVersion() {
+  return useQuery({
+    queryKey: ["version"],
+    queryFn: fetchVersion,
+    staleTime: 60 * 60 * 1000, // re-check once per hour
   });
 }

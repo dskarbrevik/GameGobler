@@ -246,13 +246,11 @@ function GameList({
     else { setSortKey(key); setSortDir("asc"); }
   }
 
-  function Th({ col, label }: { col: SortKey; label: string }) {
-    return (
-      <th className="rom-th" onClick={() => toggleSort(col)}>
-        {label} <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
-      </th>
-    );
-  }
+  const renderTh = (col: SortKey, label: string) => (
+    <th className="rom-th" onClick={() => toggleSort(col)}>
+      {label} <SortIcon col={col} sortKey={sortKey} sortDir={sortDir} />
+    </th>
+  );
 
   const biosCount = games.filter((g) => g.meta?.is_bios).length;
 
@@ -352,13 +350,13 @@ function GameList({
             <thead>
               <tr>
                 <th className="rom-th-cover" />
-                <Th col="title" label="Title" />
-                <Th col="regions" label="Region" />
-                <Th col="type" label="Type" />
-                <Th col="languages" label="Languages" />
+                {renderTh("title", "Title")}
+                {renderTh("regions", "Region")}
+                {renderTh("type", "Type")}
+                {renderTh("languages", "Languages")}
                 <th className="rom-th">Features</th>
-                <Th col="revision" label="Rev" />
-                <Th col="size" label="Size" />
+                {renderTh("revision", "Rev")}
+                {renderTh("size", "Size")}
               </tr>
             </thead>
             <tbody>

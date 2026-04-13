@@ -1,0 +1,16 @@
+#!/bin/bash
+# Development sidecar wrapper — runs the Python backend via uv.
+# In production builds, this is replaced by the PyInstaller binary.
+#
+# Tauri expects the sidecar at:
+#   binaries/gamegobler-api-<target-triple>
+# This script must be named accordingly for your platform.
+
+set -euo pipefail
+
+# Navigate to the repo root (two levels up from src-tauri/binaries/)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+cd "$REPO_ROOT"
+exec uv run gamegobler-api "$@"

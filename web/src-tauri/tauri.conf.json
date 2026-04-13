@@ -1,0 +1,78 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "GameGobler",
+  "version": "0.1.0",
+  "identifier": "com.github.dskarbrevik.gamegobler",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "GameGobler",
+        "label": "main",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": null,
+      "entitlements": null
+    },
+    "windows": {
+      "wix": {
+        "language": "en-US",
+        "template": null
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libappindicator3-1"],
+        "section": "games",
+        "desktopTemplate": null
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "category": "Game",
+    "shortDescription": "ROM library manager for microSD cards and Android devices",
+    "longDescription": "A cross-platform tool that makes adding and removing games to microSD cards and Android devices a seamless experience. Browse your ROM library with cover art, discover connected devices, and transfer games with progress tracking.",
+    "copyright": "Copyright (c) dskarbrevik",
+    "homepage": "https://dskarbrevik.github.io/GameGobler",
+    "externalBin": [
+      "binaries/gamegobler-api"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI0OUVCRkJEMUZFQkFBM0EKUldRNnF1c2Z2YitlSklWNkxObWpTYm5KbTdkcFRMdDVKVE9nYmRDNVhSb1lGYXlKdHNzeE15cnYK",
+      "endpoints": [
+        "https://github.com/dskarbrevik/GameGobler/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}

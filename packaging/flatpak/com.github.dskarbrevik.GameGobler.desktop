@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=GameGobler
+GenericName=ROM Library Manager
+Comment=Manage games on microSD cards and Android devices
+Exec=gamegobler
+Terminal=false
+Categories=Game;Utility;
+Keywords=rom;retro;gaming;emulation;microsd;android;
