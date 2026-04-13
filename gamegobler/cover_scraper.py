@@ -64,19 +64,21 @@ SYSTEM_MAP: dict[str, str] = {
 }
 
 # Characters that libretro-thumbnails replaces with underscore in filenames.
-_UNSAFE_CHARS = str.maketrans({
-    "&": "_",
-    "*": "_",
-    "/": "_",
-    ":": "_",
-    "`": "_",
-    "<": "_",
-    ">": "_",
-    "?": "_",
-    "\\": "_",
-    "|": "_",
-    '"': "_",
-})
+_UNSAFE_CHARS = str.maketrans(
+    {
+        "&": "_",
+        "*": "_",
+        "/": "_",
+        ":": "_",
+        "`": "_",
+        "<": "_",
+        ">": "_",
+        "?": "_",
+        "\\": "_",
+        "|": "_",
+        '"': "_",
+    }
+)
 
 
 def libretro_thumb_name(game_stem: str) -> str:
@@ -108,17 +110,20 @@ async def scrape_covers(
     """
     repo_name = SYSTEM_MAP.get(system_name)
     if not repo_name:
-        yield {"game": "", "status": "error", "current": 0, "total": 0,
-               "message": f"No libretro-thumbnails mapping for '{system_name}'"}
+        yield {
+            "game": "",
+            "status": "error",
+            "current": 0,
+            "total": 0,
+            "message": f"No libretro-thumbnails mapping for '{system_name}'",
+        }
         return
 
     output_dir.mkdir(parents=True, exist_ok=True)
     total = len(game_stems)
     semaphore = asyncio.Semaphore(concurrency)
 
-    async def _download_one(
-        client: httpx.AsyncClient, idx: int, stem: str
-    ) -> dict:
+    async def _download_one(client: httpx.AsyncClient, idx: int, stem: str) -> dict:
         dest = output_dir / f"{libretro_thumb_name(stem)}.png"
         if skip_existing and dest.exists():
             return {"game": stem, "status": "skip", "current": idx, "total": total}
@@ -129,15 +134,35 @@ async def scrape_covers(
                 resp = await client.get(url, follow_redirects=True)
                 if resp.status_code == 200:
                     dest.write_bytes(resp.content)
-                    return {"game": stem, "status": "ok", "current": idx, "total": total}
+                    return {
+                        "game": stem,
+                        "status": "ok",
+                        "current": idx,
+                        "total": total,
+                    }
                 elif resp.status_code == 404:
-                    return {"game": stem, "status": "404", "current": idx, "total": total}
+                    return {
+                        "game": stem,
+                        "status": "404",
+                        "current": idx,
+                        "total": total,
+                    }
                 else:
-                    return {"game": stem, "status": "error", "current": idx, "total": total,
-                            "message": f"HTTP {resp.status_code}"}
+                    return {
+                        "game": stem,
+                        "status": "error",
+                        "current": idx,
+                        "total": total,
+                        "message": f"HTTP {resp.status_code}",
+                    }
             except httpx.HTTPError as exc:
-                return {"game": stem, "status": "error", "current": idx, "total": total,
-                        "message": str(exc)}
+                return {
+                    "game": stem,
+                    "status": "error",
+                    "current": idx,
+                    "total": total,
+                    "message": str(exc),
+                }
 
     async with httpx.AsyncClient(timeout=15) as client:
         tasks = [

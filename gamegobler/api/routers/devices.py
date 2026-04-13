@@ -1,10 +1,13 @@
-"""Device management API routes."""
+"""Device management API routes.
+
+Delegates volume operations to the platform abstraction layer, making
+all endpoints work identically on Linux, macOS, and Windows.
+"""
 
 import contextlib
 import json
 import os
 import shutil
-import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
@@ -13,31 +16,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from gamegobler import settings
 from gamegobler.api.models import DeviceFile, DeviceInfo, SearchResult, StorageInfo
+from gamegobler.platform import get_platform
 from gamegobler.rom_parser import parse_rom_filename
 from gamegobler.transfer import ADBManager
 
 router = APIRouter()
-
-SETTINGS_PATH = Path.home() / ".gamegobler" / "settings.json"
-
-
-def _load_settings() -> dict:
-    if SETTINGS_PATH.exists():
-        with open(SETTINGS_PATH) as f:
-            return json.load(f)
-    return {}
-
-
-def _save_settings(data: dict) -> None:
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_PATH, "w") as f:
-        json.dump(data, f, indent=2)
-
-
-def _get_registered_devices() -> list[dict]:
-    """Load registered volume devices from settings."""
-    return _load_settings().get("registered_devices", [])
 
 
 def _volume_storage(mount_path: str) -> dict[str, StorageInfo]:
@@ -45,9 +30,7 @@ def _volume_storage(mount_path: str) -> dict[str, StorageInfo]:
     try:
         usage = shutil.disk_usage(mount_path)
         return {
-            "volume": StorageInfo(
-                path=mount_path, free=usage.free, total=usage.total
-            )
+            "volume": StorageInfo(path=mount_path, free=usage.free, total=usage.total)
         }
     except OSError:
         return {"volume": StorageInfo(path=mount_path)}
@@ -71,9 +54,7 @@ async def list_devices() -> list[DeviceInfo]:
         for device_id in ADBManager.get_all_devices():
             storage_raw = await ADBManager.list_storage_locations(device_id)
             storage = {
-                k: StorageInfo(
-                    path=v["path"], free=v.get("free"), total=v.get("total")
-                )
+                k: StorageInfo(path=v["path"], free=v.get("free"), total=v.get("total"))
                 for k, v in storage_raw.items()
             }
             devices.append(
@@ -86,7 +67,7 @@ async def list_devices() -> list[DeviceInfo]:
             )
 
     # Registered volume devices
-    for reg in _get_registered_devices():
+    for reg in settings.get_registered_devices():
         mount_path = reg["path"]
         if _volume_connected(mount_path):
             devices.append(
@@ -108,90 +89,29 @@ async def list_devices() -> list[DeviceInfo]:
 async def discover_volumes() -> list[dict]:
     """Discover mounted USB/removable volumes that could be emulation devices.
 
-    Returns candidates excluding the library path and already-registered paths.
-    Uses lsblk on Linux, diskutil on macOS, or WMIC on Windows.
+    Delegates to the OS-specific platform backend (lsblk on Linux,
+    diskutil on macOS, PowerShell on Windows).
     """
-    settings = _load_settings()
-    library_path = settings.get("library_path", "")
-    registered_paths = {d["path"] for d in settings.get("registered_devices", [])}
+    data = settings.load()
+    library_path = data.get("library_path", "")
+    registered_paths = {d["path"] for d in data.get("registered_devices", [])}
 
-    candidates: list[dict] = []
+    exclude_paths = registered_paths.copy()
+    if library_path:
+        exclude_paths.add(library_path)
 
-    try:
-        result = subprocess.run(
-            [
-                "lsblk",
-                "-J",
-                "-o",
-                "NAME,SIZE,MOUNTPOINT,TRAN,RM,FSTYPE,LABEL,MODEL",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            import json as _json
-            data = _json.loads(result.stdout)
-            for dev in data.get("blockdevices", []):
-                _collect_candidates(
-                    dev, candidates, library_path, registered_paths
-                )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        # lsblk not available (macOS / Windows) — fall back to scanning /mnt
-        for entry in Path("/mnt").iterdir():
-            mp = str(entry)
-            if (
-                entry.is_dir()
-                and mp != library_path
-                and mp not in registered_paths
-            ):
-                try:
-                    usage = shutil.disk_usage(mp)
-                    candidates.append(
-                        {
-                            "path": mp,
-                            "label": entry.name,
-                            "size": usage.total,
-                            "fstype": None,
-                            "model": None,
-                        }
-                    )
-                except OSError:
-                    pass
-
-    return candidates
-
-
-def _collect_candidates(
-    dev: dict,
-    out: list[dict],
-    library_path: str,
-    registered: set[str],
-) -> None:
-    """Recursively walk lsblk JSON tree collecting mounted USB volumes."""
-    mp = dev.get("mountpoint")
-    tran = dev.get("tran") or ""
-    # Include USB-connected partitions that are mounted
-    if mp and tran == "usb" and mp != library_path and mp not in registered:
-        # Skip swap, boot, etc.
-        fstype = dev.get("fstype") or ""
-        if fstype and fstype not in ("swap", "vfat"):
-            raw_label = dev.get("label")
-            label = raw_label if raw_label and raw_label != "None" else Path(mp).name
-            out.append(
-                {
-                    "path": mp,
-                    "label": label,
-                    "size": dev.get("size"),
-                    "fstype": fstype,
-                    "model": dev.get("model"),
-                }
-            )
-    for child in dev.get("children", []):
-        # Inherit transport type from parent
-        if not child.get("tran"):
-            child["tran"] = tran
-        _collect_candidates(child, out, library_path, registered)
+    plat = get_platform()
+    vols = plat.discover_volumes(exclude_paths=exclude_paths)
+    return [
+        {
+            "path": v.path,
+            "label": v.label,
+            "size": v.size,
+            "fstype": v.fstype,
+            "model": v.model,
+        }
+        for v in vols
+    ]
 
 
 class RegisterDeviceRequest(BaseModel):
@@ -206,17 +126,16 @@ async def register_volume(req: RegisterDeviceRequest) -> DeviceInfo:
     if not Path(mount_path).is_dir():
         raise HTTPException(status_code=400, detail=f"Path not found: {mount_path}")
 
-    settings = _load_settings()
-    devices = settings.get("registered_devices", [])
+    data = settings.load()
+    devices = data.get("registered_devices", [])
 
-    # Prevent duplicates
     if any(d["path"] == mount_path for d in devices):
         raise HTTPException(status_code=409, detail="Device already registered")
 
     label = req.label or Path(mount_path).name
     devices.append({"path": mount_path, "label": label})
-    settings["registered_devices"] = devices
-    _save_settings(settings)
+    data["registered_devices"] = devices
+    settings.save(data)
 
     return DeviceInfo(
         device_id=mount_path,
@@ -229,72 +148,53 @@ async def register_volume(req: RegisterDeviceRequest) -> DeviceInfo:
 @router.delete("/volumes/register")
 async def unregister_volume(path: str) -> dict:
     """Remove a registered volume device."""
-    settings = _load_settings()
-    devices = settings.get("registered_devices", [])
+    data = settings.load()
+    devices = data.get("registered_devices", [])
     before = len(devices)
     devices = [d for d in devices if d["path"] != path]
     if len(devices) == before:
         raise HTTPException(status_code=404, detail="Device not registered")
-    settings["registered_devices"] = devices
-    _save_settings(settings)
+    data["registered_devices"] = devices
+    settings.save(data)
     return {"status": "removed", "path": path}
 
 
 @router.post("/volumes/eject")
 async def eject_volume(path: str) -> dict:
-    """Safely unmount and power off a volume device via udisksctl.
+    """Safely unmount and power off a volume device.
 
-    Unregisters the device and makes it safe to physically remove.
+    Uses the OS-appropriate eject mechanism.  Unregisters the device
+    on success.
     """
-    registered = _get_registered_devices()
+    registered = settings.get_registered_devices()
     if not any(d["path"] == path for d in registered):
         raise HTTPException(status_code=400, detail="Device not registered")
 
-    block_device = _find_block_device(path)
-
-    # Flush writes to disk
-    subprocess.run(["sync"], timeout=30)
-
-    # Unmount via udisksctl
-    result = subprocess.run(
-        ["udisksctl", "unmount", "-b", block_device],
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unmount failed: {result.stderr.strip()}",
-        )
-
-    # Power off the drive (makes it safe to pull out)
-    result = subprocess.run(
-        ["udisksctl", "power-off", "-b", block_device],
-        capture_output=True, text=True, timeout=30,
-    )
-    # power-off may fail on some devices (e.g. card readers) — that's OK,
-    # the unmount above is what matters for data safety
+    plat = get_platform()
+    result = plat.eject_volume(path)
+    if not result.success:
+        raise HTTPException(status_code=500, detail=result.error)
 
     # Unregister the device
-    settings = _load_settings()
-    devices = settings.get("registered_devices", [])
-    devices = [d for d in devices if d["path"] != path]
-    settings["registered_devices"] = devices
-    _save_settings(settings)
-
+    data = settings.load()
+    data["registered_devices"] = [
+        d for d in data.get("registered_devices", []) if d["path"] != path
+    ]
+    settings.save(data)
     return {"status": "ejected", "path": path}
 
 
-# ─── ADB file operations ──────────────────────────────
+# ─── Device file operations ───────────────────────────
 
 
 @router.get("/files")
 async def list_device_files(device_id: str, path: str = "/sdcard") -> list[DeviceFile]:
     """List files on a device at the given path.
 
-    For volume devices (device_id starts with /), uses native filesystem.
-    For ADB devices, uses adb shell.
+    For volume devices (device_id starts with / or a drive letter), uses
+    native filesystem.  For ADB devices, uses adb shell.
     """
-    if device_id.startswith("/"):
+    if _is_volume_id(device_id):
         return _list_volume_files(device_id, path)
 
     if not ADBManager.check_device_connected(device_id):
@@ -312,9 +212,11 @@ async def list_device_files(device_id: str, path: str = "/sdcard") -> list[Devic
 
 
 @router.get("/files/recursive")
-async def list_device_files_recursive(device_id: str, path: str = "/sdcard") -> list[DeviceFile]:
+async def list_device_files_recursive(
+    device_id: str, path: str = "/sdcard"
+) -> list[DeviceFile]:
     """List all files recursively."""
-    if device_id.startswith("/"):
+    if _is_volume_id(device_id):
         return _list_volume_files_recursive(device_id, path)
 
     if not ADBManager.check_device_connected(device_id):
@@ -332,7 +234,7 @@ async def list_device_files_recursive(device_id: str, path: str = "/sdcard") -> 
 @router.delete("/files")
 async def delete_device_file(device_id: str, file_path: str) -> dict:
     """Delete a file from a device."""
-    if device_id.startswith("/"):
+    if _is_volume_id(device_id):
         return _delete_volume_file(device_id, file_path)
 
     if not ADBManager.check_device_connected(device_id):
@@ -345,11 +247,18 @@ async def delete_device_file(device_id: str, file_path: str) -> dict:
     return {"status": "deleted", "path": file_path}
 
 
-# ─── Volume file operations (native filesystem) ───────
+# ─── Volume file helpers (native filesystem) ──────────
+
+
+def _is_volume_id(device_id: str) -> bool:
+    """Volume IDs are filesystem paths (Unix ``/...`` or Windows ``X:\\``)."""
+    return device_id.startswith("/") or (
+        len(device_id) >= 2 and device_id[1] == ":" and device_id[0].isalpha()
+    )
 
 
 def _validate_volume_path(device_id: str, file_path: str) -> Path:
-    """Ensure file_path is within the device mount to prevent path traversal."""
+    """Ensure *file_path* is within the device mount to prevent traversal."""
     base = Path(device_id).resolve()
     target = Path(file_path).resolve()
     if not str(target).startswith(str(base)):
@@ -358,7 +267,6 @@ def _validate_volume_path(device_id: str, file_path: str) -> Path:
 
 
 def _list_volume_files(device_id: str, path: str) -> list[DeviceFile]:
-    """List files in a directory on a mounted volume."""
     target = _validate_volume_path(device_id, path)
     if not target.is_dir():
         raise HTTPException(status_code=404, detail=f"Directory not found: {path}")
@@ -369,11 +277,7 @@ def _list_volume_files(device_id: str, path: str) -> list[DeviceFile]:
             if entry.name.startswith("."):
                 continue
             result.append(
-                DeviceFile(
-                    name=entry.name,
-                    path=str(entry),
-                    is_dir=entry.is_dir(),
-                )
+                DeviceFile(name=entry.name, path=str(entry), is_dir=entry.is_dir())
             )
     except PermissionError:
         raise HTTPException(status_code=403, detail="Permission denied")
@@ -381,7 +285,6 @@ def _list_volume_files(device_id: str, path: str) -> list[DeviceFile]:
 
 
 def _list_volume_files_recursive(device_id: str, path: str) -> list[DeviceFile]:
-    """Recursively list files on a mounted volume."""
     target = _validate_volume_path(device_id, path)
     if not target.is_dir():
         raise HTTPException(status_code=404, detail=f"Directory not found: {path}")
@@ -395,7 +298,6 @@ def _list_volume_files_recursive(device_id: str, path: str) -> list[DeviceFile]:
 
 
 def _delete_volume_file(device_id: str, file_path: str) -> dict:
-    """Delete a file from a mounted volume."""
     target = _validate_volume_path(device_id, file_path)
     if not target.is_file():
         raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
@@ -409,78 +311,22 @@ DEVICE_ROMS_DIR = "ROMs"
 DEVICE_BIOS_DIR = "BIOS"
 ADB_ROMS_BASE = "/sdcard/ROMs"
 
-PROTECTED_MOUNTS = frozenset({
-    "/", "/boot", "/boot/efi", "/home", "/var", "/usr",
-    "/etc", "/opt", "/tmp", "/root",
-})
-
-
-def _find_block_device(mount_path: str) -> str:
-    """Resolve a mount path to its underlying block device."""
-    try:
-        result = subprocess.run(
-            ["findmnt", "-n", "-o", "SOURCE", mount_path],
-            capture_output=True, text=True, timeout=5,
-        )
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="findmnt not available")
-    block_dev = result.stdout.strip()
-    if not block_dev or not block_dev.startswith("/dev/"):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Could not determine block device for {mount_path}",
-        )
-    return block_dev
-
-
-def _ensure_writable(mount_path: str) -> str:
-    """Ensure a volume is writable by the current user.
-
-    If not writable, attempts to remount via udisksctl (no sudo needed).
-    Returns the (possibly new) mount path.
-    """
-    if os.access(mount_path, os.W_OK):
-        return mount_path
-
-    block_dev = _find_block_device(mount_path)
-
-    # Unmount via udisksctl
-    result = subprocess.run(
-        ["udisksctl", "unmount", "-b", block_dev],
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Cannot remount for write access: {result.stderr.strip()}",
-        )
-
-    # Remount via udisksctl — mounts with user ownership automatically
-    result = subprocess.run(
-        ["udisksctl", "mount", "-b", block_dev],
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Remount failed: {result.stderr.strip()}",
-        )
-
-    # Parse new mount path from udisksctl output: "Mounted /dev/sde1 at /run/media/user/LABEL"
-    new_path = mount_path
-    stdout = result.stdout.strip()
-    if " at " in stdout:
-        new_path = stdout.split(" at ", 1)[1].rstrip(".")
-
-    # Update registered device path if it changed
-    if new_path != mount_path:
-        settings = _load_settings()
-        for d in settings.get("registered_devices", []):
-            if d["path"] == mount_path:
-                d["path"] = new_path
-        _save_settings(settings)
-
-    return new_path
+PROTECTED_MOUNTS = frozenset(
+    {
+        "/",
+        "/boot",
+        "/boot/efi",
+        "/home",
+        "/var",
+        "/usr",
+        "/etc",
+        "/opt",
+        "/tmp",
+        "/root",
+        # Windows system drives
+        "C:\\",
+    }
+)
 
 
 @router.get("/volumes/status")
@@ -490,19 +336,9 @@ async def volume_status(device_id: str) -> dict:
     if not mount_path.is_dir():
         raise HTTPException(status_code=404, detail="Volume not accessible")
 
-    # Filesystem type via findmnt
-    fstype = None
-    try:
-        result = subprocess.run(
-            ["findmnt", "-n", "-o", "FSTYPE", device_id],
-            capture_output=True, text=True, timeout=5,
-        )
-        if result.returncode == 0:
-            fstype = result.stdout.strip() or None
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+    plat = get_platform()
+    vol_info = plat.get_volume_info(device_id)
 
-    # Check initialization
     roms_dir = mount_path / DEVICE_ROMS_DIR
     bios_dir = mount_path / DEVICE_BIOS_DIR
 
@@ -511,20 +347,18 @@ async def volume_status(device_id: str) -> dict:
         for d in sorted(roms_dir.iterdir()):
             if d.is_dir() and not d.name.startswith("."):
                 game_count = sum(
-                    1 for f in d.iterdir()
-                    if f.is_file() and not f.name.startswith(".")
+                    1 for f in d.iterdir() if f.is_file() and not f.name.startswith(".")
                 )
                 systems_on_device.append({"name": d.name, "game_count": game_count})
 
     bios_count = 0
     if bios_dir.is_dir():
         bios_count = sum(
-            1 for f in bios_dir.iterdir()
-            if f.is_file() and not f.name.startswith(".")
+            1 for f in bios_dir.iterdir() if f.is_file() and not f.name.startswith(".")
         )
 
     return {
-        "fstype": fstype,
+        "fstype": vol_info.fstype,
         "is_initialized": roms_dir.is_dir(),
         "systems": systems_on_device,
         "bios_count": bios_count,
@@ -538,19 +372,18 @@ class FormatVolumeRequest(BaseModel):
 
 @router.post("/volumes/format")
 async def format_volume(req: FormatVolumeRequest) -> dict:
-    """Format a registered volume as exFAT for Android compatibility.
+    """Format a registered volume as exFAT for broad device compatibility.
 
-    Uses udisksctl (no sudo needed) for unmount/remount.
+    Uses the OS-appropriate format mechanism.
     WARNING: This erases all data on the volume.
     """
     mount_path = req.device_id
 
     # Safety checks
-    registered = _get_registered_devices()
+    registered = settings.get_registered_devices()
     if not any(d["path"] == mount_path for d in registered):
         raise HTTPException(status_code=400, detail="Device not registered")
 
-    settings = _load_settings()
     if mount_path == settings.get("library_path", ""):
         raise HTTPException(status_code=403, detail="Cannot format the library drive")
 
@@ -558,74 +391,29 @@ async def format_volume(req: FormatVolumeRequest) -> dict:
         raise HTTPException(status_code=403, detail="Cannot format a system mount")
 
     if not Path(mount_path).is_dir():
-        raise HTTPException(status_code=400, detail=f"Mount path not accessible: {mount_path}")
-
-    block_device = _find_block_device(mount_path)
-    label = req.label[:11].strip() or "EMUROMS"
-
-    # Step 1: Unmount via udisksctl
-    result = subprocess.run(
-        ["udisksctl", "unmount", "-b", block_device],
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
         raise HTTPException(
-            status_code=500,
-            detail=f"Unmount failed: {result.stderr.strip()}",
+            status_code=400, detail=f"Mount path not accessible: {mount_path}"
         )
 
-    # Step 2: Format as exFAT (mkfs.exfat still needs appropriate permissions)
-    result = subprocess.run(
-        ["mkfs.exfat", "-n", label, block_device],
-        capture_output=True, text=True, timeout=120,
-    )
-    if result.returncode != 0:
-        # Try to remount on failure
-        subprocess.run(
-            ["udisksctl", "mount", "-b", block_device],
-            capture_output=True, timeout=30,
-        )
-        stderr = result.stderr.strip()
-        if "permission" in stderr.lower() or "not permitted" in stderr.lower():
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    f"Format requires elevated permissions. "
-                    f"Run: sudo mkfs.exfat -n {label} {block_device}"
-                ),
-            )
-        raise HTTPException(status_code=500, detail=f"Format failed: {stderr}")
-
-    # Step 3: Remount via udisksctl — auto-sets user ownership
-    result = subprocess.run(
-        ["udisksctl", "mount", "-b", block_device],
-        capture_output=True, text=True, timeout=30,
-    )
-    if result.returncode != 0:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Formatted but remount failed: {result.stderr.strip()}",
-        )
-
-    # Parse new mount path from udisksctl output
-    new_path = mount_path
-    stdout = result.stdout.strip()
-    if " at " in stdout:
-        new_path = stdout.split(" at ", 1)[1].rstrip(".")
+    plat = get_platform()
+    result = plat.format_volume(mount_path, label=req.label)
+    if not result.success:
+        status = 403 if "permission" in result.error.lower() else 500
+        raise HTTPException(status_code=status, detail=result.error)
 
     # Update settings with new path and label
-    settings = _load_settings()
-    for d in settings.get("registered_devices", []):
+    data = settings.load()
+    for d in data.get("registered_devices", []):
         if d["path"] == mount_path:
-            d["path"] = new_path
-            d["label"] = label
-    _save_settings(settings)
+            d["path"] = result.new_path
+            d["label"] = req.label[:11].strip() or "EMUROMS"
+    settings.save(data)
 
     return {
         "status": "formatted",
         "filesystem": "exfat",
-        "label": label,
-        "new_path": new_path,
+        "label": req.label[:11].strip() or "EMUROMS",
+        "new_path": result.new_path,
     }
 
 
@@ -636,14 +424,27 @@ class InitializeVolumeRequest(BaseModel):
 @router.post("/volumes/initialize")
 async def initialize_volume(req: InitializeVolumeRequest):
     """Create ES-DE ROM folder structure and copy BIOS files. Returns SSE progress."""
-    # Ensure we can write to the volume (remounts via udisksctl if needed)
-    actual_path = _ensure_writable(req.device_id)
+    plat = get_platform()
+    try:
+        actual_path = plat.ensure_writable(req.device_id)
+    except OSError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
     mount_path = Path(actual_path)
     if not mount_path.is_dir():
-        raise HTTPException(status_code=400, detail=f"Volume not accessible: {req.device_id}")
+        raise HTTPException(
+            status_code=400, detail=f"Volume not accessible: {req.device_id}"
+        )
 
-    settings = _load_settings()
-    library_path = Path(settings.get("library_path", ""))
+    # Update registered path if it changed after remount
+    if actual_path != req.device_id:
+        data = settings.load()
+        for d in data.get("registered_devices", []):
+            if d["path"] == req.device_id:
+                d["path"] = actual_path
+        settings.save(data)
+
+    library_path = settings.get_library_path()
     if not library_path.is_dir():
         raise HTTPException(status_code=400, detail="Library path not configured")
 
@@ -651,11 +452,7 @@ async def initialize_volume(req: InitializeVolumeRequest):
     non_system_dirs = {"BIOS", "downloaded_media", "media", "images"}
     systems_to_create: list[str] = []
     for d in sorted(library_path.iterdir()):
-        if (
-            d.is_dir()
-            and not d.name.startswith(".")
-            and d.name not in non_system_dirs
-        ):
+        if d.is_dir() and not d.name.startswith(".") and d.name not in non_system_dirs:
             if any(f.is_file() and not f.name.startswith(".") for f in d.iterdir()):
                 systems_to_create.append(d.name)
 
@@ -678,7 +475,15 @@ async def initialize_volume(req: InitializeVolumeRequest):
         for system_name in systems_to_create:
             (roms_root / system_name).mkdir(parents=True, exist_ok=True)
             current += 1
-            yield f"data: {json.dumps({'step': 'folder', 'name': system_name, 'current': current, 'total': total_steps})}\n\n"
+            evt = json.dumps(
+                {
+                    "step": "folder",
+                    "name": system_name,
+                    "current": current,
+                    "total": total_steps,
+                }
+            )
+            yield f"data: {evt}\n\n"
 
         bios_dest.mkdir(parents=True, exist_ok=True)
         copied_names: set[str] = set()
@@ -686,7 +491,15 @@ async def initialize_volume(req: InitializeVolumeRequest):
         for bios_file in bios_files:
             current += 1
             if bios_file.name in copied_names:
-                yield f"data: {json.dumps({'step': 'bios_skip', 'name': bios_file.name, 'current': current, 'total': total_steps})}\n\n"
+                evt = json.dumps(
+                    {
+                        "step": "bios_skip",
+                        "name": bios_file.name,
+                        "current": current,
+                        "total": total_steps,
+                    }
+                )
+                yield f"data: {evt}\n\n"
                 continue
             copied_names.add(bios_file.name)
             dest = bios_dest / bios_file.name
@@ -696,19 +509,37 @@ async def initialize_volume(req: InitializeVolumeRequest):
                 bios_copied += 1
             except OSError as e:
                 errors.append(f"{bios_file.name}: {e}")
-            yield f"data: {json.dumps({'step': 'bios', 'name': bios_file.name, 'current': current, 'total': total_steps})}\n\n"
+            evt = json.dumps(
+                {
+                    "step": "bios",
+                    "name": bios_file.name,
+                    "current": current,
+                    "total": total_steps,
+                }
+            )
+            yield f"data: {evt}\n\n"
 
-        yield f"data: {json.dumps({'step': 'done', 'systems_created': len(systems_to_create), 'bios_copied': bios_copied, 'errors': errors, 'current': total_steps, 'total': total_steps})}\n\n"
+        evt = json.dumps(
+            {
+                "step": "done",
+                "systems_created": len(systems_to_create),
+                "bios_copied": bios_copied,
+                "errors": errors,
+                "current": total_steps,
+                "total": total_steps,
+            }
+        )
+        yield f"data: {evt}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
-# ─── Game management ──────────────────────────────────────
+# ─── Game management ──────────────────────────────────
 
 
 def _device_roms_path(device_id: str, system: str) -> str:
     """Get the ROM directory path on a device for a system."""
-    if device_id.startswith("/"):
+    if _is_volume_id(device_id):
         return str(Path(device_id) / DEVICE_ROMS_DIR / system)
     return f"{ADB_ROMS_BASE}/{system}"
 
@@ -718,7 +549,7 @@ async def list_device_games(device_id: str, system: str) -> list[str]:
     """List game filenames on a device for a given system."""
     roms_path = _device_roms_path(device_id, system)
 
-    if device_id.startswith("/"):
+    if _is_volume_id(device_id):
         _validate_volume_path(device_id, roms_path)
         roms_dir = Path(roms_path)
         if not roms_dir.is_dir():
@@ -730,7 +561,9 @@ async def list_device_games(device_id: str, system: str) -> list[str]:
         )
     else:
         if not ADBManager.check_device_connected(device_id):
-            raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
+            raise HTTPException(
+                status_code=404, detail=f"Device {device_id} not connected"
+            )
         try:
             files = await ADBManager.list_files(roms_path, device_id, recursive=False)
             return sorted(f.rstrip("/") for f in files if not f.endswith("/"))
@@ -741,12 +574,10 @@ async def list_device_games(device_id: str, system: str) -> list[str]:
 @router.get("/games/installed")
 async def list_installed_games(device_id: str) -> list[SearchResult]:
     """List all games installed on a device across all systems, with library metadata."""
-    from gamegobler.api.routers.library import _get_library_path
-
-    library_path = _get_library_path()
+    library_path = settings.get_library_path()
     results: list[SearchResult] = []
 
-    if device_id.startswith("/"):
+    if _is_volume_id(device_id):
         roms_base = Path(device_id) / DEVICE_ROMS_DIR
         if not roms_base.is_dir():
             return []
@@ -758,17 +589,23 @@ async def list_installed_games(device_id: str) -> list[SearchResult]:
                 if not f.is_file() or f.name.startswith("."):
                     continue
                 lib_file = library_path / system / f.name
-                size = lib_file.stat().st_size if lib_file.is_file() else f.stat().st_size
-                results.append(SearchResult(
-                    name=f.name,
-                    size=size,
-                    has_cover=False,
-                    meta=parse_rom_filename(f.name),
-                    system=system,
-                ))
+                size = (
+                    lib_file.stat().st_size if lib_file.is_file() else f.stat().st_size
+                )
+                results.append(
+                    SearchResult(
+                        name=f.name,
+                        size=size,
+                        has_cover=False,
+                        meta=parse_rom_filename(f.name),
+                        system=system,
+                    )
+                )
     else:
         if not ADBManager.check_device_connected(device_id):
-            raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
+            raise HTTPException(
+                status_code=404, detail=f"Device {device_id} not connected"
+            )
         if library_path.exists():
             for system_dir in sorted(library_path.iterdir()):
                 if not system_dir.is_dir() or system_dir.name.startswith("."):
@@ -776,17 +613,23 @@ async def list_installed_games(device_id: str) -> list[SearchResult]:
                 system = system_dir.name
                 roms_path = _device_roms_path(device_id, system)
                 try:
-                    files = await ADBManager.list_files(roms_path, device_id, recursive=False)
-                    for fname in sorted(f.rstrip("/") for f in files if not f.endswith("/")):
+                    files = await ADBManager.list_files(
+                        roms_path, device_id, recursive=False
+                    )
+                    for fname in sorted(
+                        f.rstrip("/") for f in files if not f.endswith("/")
+                    ):
                         lib_file = library_path / system / fname
                         size = lib_file.stat().st_size if lib_file.is_file() else 0
-                        results.append(SearchResult(
-                            name=fname,
-                            size=size,
-                            has_cover=False,
-                            meta=parse_rom_filename(fname),
-                            system=system,
-                        ))
+                        results.append(
+                            SearchResult(
+                                name=fname,
+                                size=size,
+                                has_cover=False,
+                                meta=parse_rom_filename(fname),
+                                system=system,
+                            )
+                        )
                 except Exception:
                     continue
     return results
@@ -796,23 +639,33 @@ COPY_CHUNK_SIZE = 1024 * 1024  # 1 MB
 
 
 def _copy_with_progress(source_file: Path, dest_file: Path):
-    """Sync generator: copies in 1 MB chunks, yielding SSE progress events."""
+    """Sync generator: copies in 1 MB chunks, yielding SSE progress events.
+
+    Writes to a ``.partial`` temp file first and renames on success so
+    that a partial/corrupt file is never left behind after a crash or
+    interruption.
+    """
     total = source_file.stat().st_size
     written = 0
+    partial = dest_file.with_suffix(dest_file.suffix + ".partial")
     try:
-        with open(source_file, "rb") as src, open(dest_file, "wb") as dst:
+        with open(source_file, "rb") as src, open(partial, "wb") as dst:
             while True:
                 chunk = src.read(COPY_CHUNK_SIZE)
                 if not chunk:
                     break
                 dst.write(chunk)
                 written += len(chunk)
-                yield f"data: {json.dumps({'bytes': written, 'total': total})}\n\n"
-        yield f"data: {json.dumps({'done': True, 'name': dest_file.name, 'size': written})}\n\n"
+                evt = json.dumps({"bytes": written, "total": total})
+                yield f"data: {evt}\n\n"
+        partial.replace(dest_file)
+        evt = json.dumps({"done": True, "name": dest_file.name, "size": written})
+        yield f"data: {evt}\n\n"
     except OSError as e:
         with contextlib.suppress(OSError):
-            dest_file.unlink(missing_ok=True)
-        yield f"data: {json.dumps({'error': str(e)})}\n\n"
+            partial.unlink(missing_ok=True)
+        evt = json.dumps({"error": str(e)})
+        yield f"data: {evt}\n\n"
 
 
 class CopyGameRequest(BaseModel):
@@ -821,30 +674,69 @@ class CopyGameRequest(BaseModel):
     game: str
 
 
+def _estimate_transfer_size(source_file: Path, unzip: bool) -> int:
+    """Estimate how many bytes will be written to the destination.
+
+    For zip files with *unzip* enabled, returns the sum of the uncompressed
+    member sizes.  Otherwise returns the source file size.
+    """
+    if unzip:
+        try:
+            with zipfile.ZipFile(source_file) as zf:
+                return sum(
+                    info.file_size for info in zf.infolist() if not info.is_dir()
+                )
+        except zipfile.BadZipFile:
+            pass
+    return source_file.stat().st_size
+
+
 @router.post("/games/copy")
 async def copy_game_to_device(req: CopyGameRequest) -> StreamingResponse:
     """Copy a single game from the library to a device, streaming SSE progress."""
-    settings = _load_settings()
-    library_path = Path(settings.get("library_path", ""))
+    library_path = settings.get_library_path()
     source_file = library_path / req.system / req.game
 
     if not source_file.is_file():
         raise HTTPException(
-            status_code=404, detail=f"Game not found in library: {req.system}/{req.game}"
+            status_code=404,
+            detail=f"Game not found in library: {req.system}/{req.game}",
         )
 
-    unzip = settings.get("unzip_on_transfer", False) and source_file.suffix.lower() == ".zip"
+    data = settings.load()
+    unzip = (
+        data.get("unzip_on_transfer", False) and source_file.suffix.lower() == ".zip"
+    )
     sse_headers = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
-    if req.device_id.startswith("/"):
-        actual_path = _ensure_writable(req.device_id)
+    if _is_volume_id(req.device_id):
+        plat = get_platform()
+        try:
+            actual_path = plat.ensure_writable(req.device_id)
+        except OSError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+
         dest_dir_path = _device_roms_path(actual_path, req.system)
         _validate_volume_path(actual_path, dest_dir_path)
         dest_dir = Path(dest_dir_path)
         dest_dir.mkdir(parents=True, exist_ok=True)
 
+        # Pre-flight space check for volumes
+        needed = _estimate_transfer_size(source_file, unzip)
+        try:
+            free = shutil.disk_usage(dest_dir).free
+            if needed > free:
+                raise HTTPException(
+                    status_code=507,
+                    detail=(
+                        f"Not enough space on device: need {needed} bytes "
+                        f"but only {free} bytes available"
+                    ),
+                )
+        except OSError:
+            pass  # best-effort; continue if we can't stat the device
+
         if not unzip:
-            # Chunked copy with per-chunk progress events
             return StreamingResponse(
                 _copy_with_progress(source_file, dest_dir / req.game),
                 media_type="text/event-stream",
@@ -852,6 +744,7 @@ async def copy_game_to_device(req: CopyGameRequest) -> StreamingResponse:
             )
 
         async def _volume_unzip_stream():
+            partial_files: list[tuple[Path, Path]] = []
             try:
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     with zipfile.ZipFile(source_file) as zf:
@@ -861,21 +754,55 @@ async def copy_game_to_device(req: CopyGameRequest) -> StreamingResponse:
                         if extracted.is_file():
                             rel = extracted.relative_to(tmp_dir)
                             dest = dest_dir / rel
+                            partial = dest.with_suffix(dest.suffix + ".partial")
                             dest.parent.mkdir(parents=True, exist_ok=True)
-                            shutil.copy2(extracted, dest)
-                            total_size += dest.stat().st_size
-                yield f"data: {json.dumps({'done': True, 'name': source_file.stem, 'size': total_size})}\n\n"
+                            shutil.copy2(extracted, partial)
+                            partial_files.append((partial, dest))
+                            total_size += partial.stat().st_size
+                    # All files written OK — rename from .partial
+                    for partial, dest in partial_files:
+                        partial.replace(dest)
+                evt = json.dumps(
+                    {"done": True, "name": source_file.stem, "size": total_size}
+                )
+                yield f"data: {evt}\n\n"
             except Exception as e:
-                yield f"data: {json.dumps({'error': str(e)})}\n\n"
+                # Clean up partial files on failure
+                for partial, _dest in partial_files:
+                    with contextlib.suppress(OSError):
+                        partial.unlink(missing_ok=True)
+                evt = json.dumps({"error": str(e)})
+                yield f"data: {evt}\n\n"
 
-        return StreamingResponse(_volume_unzip_stream(), media_type="text/event-stream", headers=sse_headers)
+        return StreamingResponse(
+            _volume_unzip_stream(),
+            media_type="text/event-stream",
+            headers=sse_headers,
+        )
 
     else:
+
         async def _adb_stream():
             if not ADBManager.check_device_connected(req.device_id):
-                yield f"data: {json.dumps({'error': f'Device {req.device_id} not connected'})}\n\n"
+                evt = json.dumps({"error": f"Device {req.device_id} not connected"})
+                yield f"data: {evt}\n\n"
                 return
             adb_dest_dir = _device_roms_path(req.device_id, req.system)
+
+            # Pre-flight space check for ADB
+            needed = _estimate_transfer_size(source_file, unzip)
+            free = await ADBManager.get_free_space(adb_dest_dir, req.device_id)
+            if free is not None and needed > free:
+                evt = json.dumps(
+                    {
+                        "error": (
+                            f"Not enough space on device: need {needed} bytes "
+                            f"but only {free} bytes available"
+                        )
+                    }
+                )
+                yield f"data: {evt}\n\n"
+                return
             if unzip:
                 try:
                     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -886,23 +813,47 @@ async def copy_game_to_device(req: CopyGameRequest) -> StreamingResponse:
                         for i, extracted in enumerate(game_files):
                             rel = extracted.relative_to(tmp_dir)
                             dest_path = f"{adb_dest_dir}/{rel}"
-                            success = await ADBManager.push_file(extracted, dest_path, req.device_id)
+                            success = await ADBManager.push_file(
+                                extracted, dest_path, req.device_id
+                            )
                             if not success:
-                                yield f"data: {json.dumps({'error': f'Failed to push {rel}'})}\n\n"
+                                evt = json.dumps({"error": f"Failed to push {rel}"})
+                                yield f"data: {evt}\n\n"
                                 return
-                            yield f"data: {json.dumps({'bytes': i + 1, 'total': len(game_files)})}\n\n"
-                    yield f"data: {json.dumps({'done': True, 'name': source_file.stem, 'size': source_file.stat().st_size})}\n\n"
+                            evt = json.dumps({"bytes": i + 1, "total": len(game_files)})
+                            yield f"data: {evt}\n\n"
+                    evt = json.dumps(
+                        {
+                            "done": True,
+                            "name": source_file.stem,
+                            "size": source_file.stat().st_size,
+                        }
+                    )
+                    yield f"data: {evt}\n\n"
                 except zipfile.BadZipFile as e:
-                    yield f"data: {json.dumps({'error': f'Invalid zip: {e}'})}\n\n"
+                    evt = json.dumps({"error": f"Invalid zip: {e}"})
+                    yield f"data: {evt}\n\n"
             else:
                 dest_path = f"{adb_dest_dir}/{req.game}"
-                success = await ADBManager.push_file(source_file, dest_path, req.device_id)
+                success = await ADBManager.push_file(
+                    source_file, dest_path, req.device_id
+                )
                 if success:
-                    yield f"data: {json.dumps({'done': True, 'name': req.game, 'size': source_file.stat().st_size})}\n\n"
+                    evt = json.dumps(
+                        {
+                            "done": True,
+                            "name": req.game,
+                            "size": source_file.stat().st_size,
+                        }
+                    )
+                    yield f"data: {evt}\n\n"
                 else:
-                    yield f"data: {json.dumps({'error': f'Failed to push {req.game}'})}\n\n"
+                    evt = json.dumps({"error": f"Failed to push {req.game}"})
+                    yield f"data: {evt}\n\n"
 
-        return StreamingResponse(_adb_stream(), media_type="text/event-stream", headers=sse_headers)
+        return StreamingResponse(
+            _adb_stream(), media_type="text/event-stream", headers=sse_headers
+        )
 
 
 @router.delete("/games")
@@ -910,12 +861,18 @@ async def remove_game_from_device(device_id: str, system: str, game: str) -> dic
     """Remove a game from a device."""
     game_path = f"{_device_roms_path(device_id, system)}/{game}"
 
-    if device_id.startswith("/"):
-        actual_path = _ensure_writable(device_id)
+    if _is_volume_id(device_id):
+        plat = get_platform()
+        try:
+            actual_path = plat.ensure_writable(device_id)
+        except OSError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
         actual_game_path = f"{_device_roms_path(actual_path, system)}/{game}"
         target = _validate_volume_path(actual_path, actual_game_path)
         if not target.is_file():
-            raise HTTPException(status_code=404, detail=f"Game not found on device: {game}")
+            raise HTTPException(
+                status_code=404, detail=f"Game not found on device: {game}"
+            )
         try:
             target.unlink()
         except OSError as e:
@@ -923,7 +880,9 @@ async def remove_game_from_device(device_id: str, system: str, game: str) -> dic
         return {"status": "removed", "name": game}
     else:
         if not ADBManager.check_device_connected(device_id):
-            raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
+            raise HTTPException(
+                status_code=404, detail=f"Device {device_id} not connected"
+            )
         success = await ADBManager.delete_file(game_path, device_id)
         if not success:
             raise HTTPException(status_code=500, detail=f"Failed to delete {game}")

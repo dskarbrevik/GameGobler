@@ -7,6 +7,7 @@ import type {
   SearchResult,
   Settings,
   SystemInfo,
+  VersionInfo,
 } from "../types";
 
 const API_BASE = "/api";
@@ -265,4 +266,10 @@ export function updateSettings(settings: Settings): Promise<Settings> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
   });
+}
+
+// ─── Version ────────────────────────────────────────────
+
+export function fetchVersion(): Promise<VersionInfo> {
+  return fetchJson<VersionInfo>(`${API_BASE}/version`);
 }

@@ -51,6 +51,48 @@ export function GameManagerPanel({ deviceId }: Props) {
     [installedGames]
   );
 
+  // isOnDevice checks per-system deviceGames OR globally installed games (cross-system)
+  const isOnDevice = (name: string, key?: string) => {
+    const k = key ?? name;
+    return (deviceGameSet.has(name) || addedKeys.has(k) || globalDeviceGameSet.has(k)) && !removedKeys.has(k);
+  };
+
+  // Source games for global mode: search results or all installed games
+  const sourceGames = globalSearch ? searchResults : installedGames;
+
+  // Collect unique filter options from the active game source
+  const activeGames = selectedSystem ? libraryGames : sourceGames;
+  const allRegions = useMemo(() =>
+    [...new Set(activeGames.flatMap((g) => g.meta?.regions ?? []))].sort(), [activeGames]);
+  const allTypes = useMemo(() =>
+    [...new Set(activeGames.map((g) => g.meta?.release_type).filter(Boolean))] as string[], [activeGames]);
+  const allFeatures = useMemo(() =>
+    [...new Set(activeGames.flatMap((g) => g.meta?.features ?? []))].sort(), [activeGames]);
+  const biosCount = useMemo(() =>
+    activeGames.filter((g) => g.meta?.is_bios).length, [activeGames]);
+
+  const filteredSourceResults = useMemo(() => {
+    if (!globalMode) return [];
+    return sourceGames.filter((g) => {
+      if (hideBios && g.meta?.is_bios) return false;
+      const key = `${g.system}/${g.name}`;
+      if (installFilter !== "all") {
+        const on = isOnDevice(g.name, key);
+        if (installFilter === "installed" && !on) return false;
+        if (installFilter === "not-installed" && on) return false;
+      }
+      if (regionFilter !== "all" && !(g.meta?.regions ?? []).includes(regionFilter)) return false;
+      if (typeFilter !== "all") {
+        const t = g.meta?.release_type ?? null;
+        if (typeFilter === "normal" && t !== null) return false;
+        if (typeFilter !== "normal" && t !== typeFilter) return false;
+      }
+      if (featureFilter !== "all" && !(g.meta?.features ?? []).includes(featureFilter)) return false;
+      return true;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceGames, globalMode, hideBios, installFilter, regionFilter, typeFilter, featureFilter, globalDeviceGameSet, deviceGameSet, addedKeys, removedKeys]);
+
   if (!deviceId) {
     return (
       <div className="panel">
@@ -121,26 +163,6 @@ export function GameManagerPanel({ deviceId }: Props) {
     }
   };
 
-  // isOnDevice checks per-system deviceGames OR globally installed games (cross-system)
-  const isOnDevice = (name: string, key?: string) => {
-    const k = key ?? name;
-    return (deviceGameSet.has(name) || addedKeys.has(k) || globalDeviceGameSet.has(k)) && !removedKeys.has(k);
-  };
-
-  // Source games for global mode: search results or all installed games
-  const sourceGames = globalSearch ? searchResults : installedGames;
-
-  // Collect unique filter options from the active game source
-  const activeGames = selectedSystem ? libraryGames : sourceGames;
-  const allRegions = useMemo(() =>
-    [...new Set(activeGames.flatMap((g) => g.meta?.regions ?? []))].sort(), [activeGames]);
-  const allTypes = useMemo(() =>
-    [...new Set(activeGames.map((g) => g.meta?.release_type).filter(Boolean))] as string[], [activeGames]);
-  const allFeatures = useMemo(() =>
-    [...new Set(activeGames.flatMap((g) => g.meta?.features ?? []))].sort(), [activeGames]);
-  const biosCount = useMemo(() =>
-    activeGames.filter((g) => g.meta?.is_bios).length, [activeGames]);
-
   const filteredGames = libraryGames.filter((g) => {
     if (hideBios && g.meta?.is_bios) return false;
     if (installFilter !== "all") {
@@ -162,27 +184,6 @@ export function GameManagerPanel({ deviceId }: Props) {
     }
     return true;
   });
-
-  const filteredSourceResults = useMemo(() => {
-    if (!globalMode) return [];
-    return sourceGames.filter((g) => {
-      if (hideBios && g.meta?.is_bios) return false;
-      const key = `${g.system}/${g.name}`;
-      if (installFilter !== "all") {
-        const on = isOnDevice(g.name, key);
-        if (installFilter === "installed" && !on) return false;
-        if (installFilter === "not-installed" && on) return false;
-      }
-      if (regionFilter !== "all" && !(g.meta?.regions ?? []).includes(regionFilter)) return false;
-      if (typeFilter !== "all") {
-        const t = g.meta?.release_type ?? null;
-        if (typeFilter === "normal" && t !== null) return false;
-        if (typeFilter !== "normal" && t !== typeFilter) return false;
-      }
-      if (featureFilter !== "all" && !(g.meta?.features ?? []).includes(featureFilter)) return false;
-      return true;
-    });
-  }, [sourceGames, globalMode, hideBios, installFilter, regionFilter, typeFilter, featureFilter, globalDeviceGameSet, deviceGameSet, addedKeys, removedKeys]);
 
   const displayedGames = selectedSystem ? filteredGames : filteredSourceResults;
   const onDeviceCount = displayedGames.filter((g) => {

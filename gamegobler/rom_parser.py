@@ -112,9 +112,11 @@ class RomMeta(BaseModel):
     title: str
     regions: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
-    release_type: str | None = None  # "Beta" | "Proto" | "Demo" | "Kiosk" | "Sample" | "Unl" | None
-    release_num: int | None = None   # e.g. 2 for "Beta 2"
-    revision: str | None = None      # e.g. "Rev 1", "v1.1"
+    release_type: str | None = (
+        None  # "Beta" | "Proto" | "Demo" | "Kiosk" | "Sample" | "Unl" | None
+    )
+    release_num: int | None = None  # e.g. 2 for "Beta 2"
+    revision: str | None = None  # e.g. "Rev 1", "v1.1"
     features: list[str] = Field(default_factory=list)
     date: str | None = None
     is_bios: bool = False
@@ -141,7 +143,6 @@ def parse_rom_filename(filename: str) -> RomMeta:
     is_bios = False
     square_tags: list[str] = []
     while stem.startswith("["):
-        m = _RE_SQUARE_TAG.match(stem.split(")")[0].split(" ")[0] if " " in stem else stem)
         bracket_end = stem.find("]")
         if bracket_end == -1:
             break

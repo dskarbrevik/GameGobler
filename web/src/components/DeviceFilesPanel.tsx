@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   MonitorSmartphone,
   Trash2,
@@ -23,11 +23,13 @@ export function DeviceFilesPanel({ deviceId, deviceType = "android" }: Props) {
   const [pathHistory, setPathHistory] = useState<string[]>([]);
   const { confirm: confirmDialog } = useToast();
 
-  // Reset path when device changes
-  useEffect(() => {
+  // Reset path when device changes (React-recommended derived state pattern)
+  const [prevDeviceId, setPrevDeviceId] = useState(deviceId);
+  if (deviceId !== prevDeviceId) {
+    setPrevDeviceId(deviceId);
     setCurrentPath(rootPath);
     setPathHistory([]);
-  }, [deviceId, rootPath]);
+  }
   const queryClient = useQueryClient();
   const {
     data: files = [],

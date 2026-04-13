@@ -1,5 +1,6 @@
 """Sync operations API routes."""
 
+import shutil
 import tempfile
 import zipfile
 from pathlib import Path
@@ -12,34 +13,59 @@ from gamegobler.transfer import ADBManager
 router = APIRouter()
 
 
+def _is_volume_id(device_id: str) -> bool:
+    """Volume IDs are filesystem paths (Unix ``/...`` or Windows ``X:\\``)."""
+    return device_id.startswith("/") or (
+        len(device_id) >= 2 and device_id[1] == ":" and device_id[0].isalpha()
+    )
+
+
 @router.post("/preview")
 async def sync_preview(req: SyncRequest) -> SyncPreview:
     """Preview what a sync operation would do without making changes."""
-    if not ADBManager.check_device_connected(req.device_id):
-        raise HTTPException(status_code=404, detail=f"Device {req.device_id} not connected")
-
     source_dir = Path(req.source_dir)
     if not source_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Source directory not found: {req.source_dir}")
+        raise HTTPException(
+            status_code=404, detail=f"Source directory not found: {req.source_dir}"
+        )
 
-    # Get expected files (from the request's game list)
+    # Build expected file set
     expected_files: dict[str, int] = {}
     for game_name in req.games:
         game_path = source_dir / game_name
         if game_path.exists():
             if req.unzip_on_transfer and game_name.lower().endswith(".zip"):
-                # Use the unzipped name and approximate size
                 unzipped_name = game_name.rsplit(".", 1)[0]
                 try:
                     with zipfile.ZipFile(game_path) as zf:
-                        expected_files[unzipped_name] = sum(i.file_size for i in zf.infolist())
+                        expected_files[unzipped_name] = sum(
+                            i.file_size for i in zf.infolist()
+                        )
                 except Exception:
                     expected_files[unzipped_name] = game_path.stat().st_size
             else:
                 expected_files[game_name] = game_path.stat().st_size
 
     # Get current files on device
-    device_files = await ADBManager.list_files(req.dest_dir, req.device_id, recursive=False)
+    if _is_volume_id(req.device_id):
+        dest = Path(req.dest_dir)
+        if dest.is_dir():
+            device_files = [
+                f.name
+                for f in dest.iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            ]
+        else:
+            device_files = []
+    else:
+        if not ADBManager.check_device_connected(req.device_id):
+            raise HTTPException(
+                status_code=404, detail=f"Device {req.device_id} not connected"
+            )
+        device_files = await ADBManager.list_files(
+            req.dest_dir, req.device_id, recursive=False
+        )
+
     device_file_set = set(device_files)
 
     to_add: list[SyncPreviewItem] = []
@@ -76,12 +102,17 @@ async def sync_preview(req: SyncRequest) -> SyncPreview:
 @router.post("/execute")
 async def sync_execute(req: SyncRequest) -> SyncResult:
     """Execute a sync operation: remove extra files and add missing ones."""
-    if not ADBManager.check_device_connected(req.device_id):
-        raise HTTPException(status_code=404, detail=f"Device {req.device_id} not connected")
-
     source_dir = Path(req.source_dir)
     if not source_dir.exists():
-        raise HTTPException(status_code=404, detail=f"Source directory not found: {req.source_dir}")
+        raise HTTPException(
+            status_code=404, detail=f"Source directory not found: {req.source_dir}"
+        )
+
+    is_volume = _is_volume_id(req.device_id)
+    if not is_volume and not ADBManager.check_device_connected(req.device_id):
+        raise HTTPException(
+            status_code=404, detail=f"Device {req.device_id} not connected"
+        )
 
     errors: list[str] = []
 
@@ -99,7 +130,23 @@ async def sync_execute(req: SyncRequest) -> SyncResult:
             errors.append(f"Source file not found: {game_name}")
 
     # Get current files on device
-    device_files = await ADBManager.list_files(req.dest_dir, req.device_id, recursive=False)
+    if is_volume:
+        dest = Path(req.dest_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        device_files = (
+            [
+                f.name
+                for f in dest.iterdir()
+                if f.is_file() and not f.name.startswith(".")
+            ]
+            if dest.is_dir()
+            else []
+        )
+    else:
+        device_files = await ADBManager.list_files(
+            req.dest_dir, req.device_id, recursive=False
+        )
+
     device_file_set = set(device_files)
     expected_names = set(expected_files.keys())
 
@@ -107,12 +154,20 @@ async def sync_execute(req: SyncRequest) -> SyncResult:
     removed = 0
     for name in device_files:
         if name not in expected_names:
-            file_path = f"{req.dest_dir}/{name}"
-            success = await ADBManager.delete_file(file_path, req.device_id)
-            if success:
-                removed += 1
+            if is_volume:
+                target = Path(req.dest_dir) / name
+                try:
+                    target.unlink()
+                    removed += 1
+                except OSError as e:
+                    errors.append(f"Failed to delete {name}: {e}")
             else:
-                errors.append(f"Failed to delete: {name}")
+                file_path = f"{req.dest_dir}/{name}"
+                success = await ADBManager.delete_file(file_path, req.device_id)
+                if success:
+                    removed += 1
+                else:
+                    errors.append(f"Failed to delete: {name}")
 
     # Add missing files
     added = 0
@@ -122,48 +177,65 @@ async def sync_execute(req: SyncRequest) -> SyncResult:
             kept += 1
             continue
 
-        # Transfer the file
-        dest_path = f"{req.dest_dir}/{name}"
-
         if req.unzip_on_transfer and source_path.suffix.lower() == ".zip":
-            # Extract and push
             try:
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     with zipfile.ZipFile(source_path) as zf:
                         zf.extractall(tmp_dir)
-
-                    # Push extracted files
                     tmp_path = Path(tmp_dir)
                     extracted = list(tmp_path.rglob("*"))
                     for extracted_file in extracted:
                         if extracted_file.is_file():
                             rel = extracted_file.relative_to(tmp_path)
-                            push_dest = f"{req.dest_dir}/{rel}"
-                            success = await ADBManager.push_file(extracted_file, push_dest, req.device_id)
-                            if not success:
-                                errors.append(f"Failed to push: {rel}")
+                            if is_volume:
+                                dest_file = Path(req.dest_dir) / rel
+                                dest_file.parent.mkdir(parents=True, exist_ok=True)
+                                shutil.copy2(extracted_file, dest_file)
+                            else:
+                                push_dest = f"{req.dest_dir}/{rel}"
+                                success = await ADBManager.push_file(
+                                    extracted_file, push_dest, req.device_id
+                                )
+                                if not success:
+                                    errors.append(f"Failed to push: {rel}")
                     added += 1
             except Exception as e:
                 errors.append(f"Failed to extract/push {source_path.name}: {e}")
         else:
-            success = await ADBManager.push_file(source_path, dest_path, req.device_id)
-            if success:
-                added += 1
+            if is_volume:
+                dest_file = Path(req.dest_dir) / name
+                try:
+                    shutil.copy2(source_path, dest_file)
+                    added += 1
+                except OSError as e:
+                    errors.append(f"Failed to copy {name}: {e}")
             else:
-                errors.append(f"Failed to push: {source_path.name}")
+                dest_path = f"{req.dest_dir}/{name}"
+                success = await ADBManager.push_file(
+                    source_path, dest_path, req.device_id
+                )
+                if success:
+                    added += 1
+                else:
+                    errors.append(f"Failed to push: {source_path.name}")
 
     return SyncResult(added=added, removed=removed, kept=kept, errors=errors)
 
 
 @router.post("/add-game")
-async def add_game(device_id: str, source_path: str, dest_dir: str, unzip: bool = False) -> dict:
+async def add_game(
+    device_id: str, source_path: str, dest_dir: str, unzip: bool = False
+) -> dict:
     """Add a single game to a device."""
-    if not ADBManager.check_device_connected(device_id):
-        raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
-
     src = Path(source_path)
     if not src.exists():
-        raise HTTPException(status_code=404, detail=f"Source file not found: {source_path}")
+        raise HTTPException(
+            status_code=404, detail=f"Source file not found: {source_path}"
+        )
+
+    is_volume = _is_volume_id(device_id)
+    if not is_volume and not ADBManager.check_device_connected(device_id):
+        raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
 
     if unzip and src.suffix.lower() == ".zip":
         try:
@@ -175,19 +247,38 @@ async def add_game(device_id: str, source_path: str, dest_dir: str, unzip: bool 
                 for extracted_file in tmp_path.rglob("*"):
                     if extracted_file.is_file():
                         rel = extracted_file.relative_to(tmp_path)
-                        dest_path = f"{dest_dir}/{rel}"
-                        success = await ADBManager.push_file(extracted_file, dest_path, device_id)
-                        if not success:
-                            raise HTTPException(status_code=500, detail=f"Failed to push {rel}")
+                        if is_volume:
+                            dest_file = Path(dest_dir) / rel
+                            dest_file.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(extracted_file, dest_file)
+                        else:
+                            dest_path = f"{dest_dir}/{rel}"
+                            success = await ADBManager.push_file(
+                                extracted_file, dest_path, device_id
+                            )
+                            if not success:
+                                raise HTTPException(
+                                    status_code=500, detail=f"Failed to push {rel}"
+                                )
 
             return {"status": "added", "name": src.stem}
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail="Invalid zip file")
     else:
-        dest_path = f"{dest_dir}/{src.name}"
-        success = await ADBManager.push_file(src, dest_path, device_id)
-        if not success:
-            raise HTTPException(status_code=500, detail=f"Failed to push {src.name}")
+        if is_volume:
+            dest_file = Path(dest_dir) / src.name
+            dest_file.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(src, dest_file)
+            except OSError as e:
+                raise HTTPException(status_code=500, detail=f"Copy failed: {e}")
+        else:
+            dest_path = f"{dest_dir}/{src.name}"
+            success = await ADBManager.push_file(src, dest_path, device_id)
+            if not success:
+                raise HTTPException(
+                    status_code=500, detail=f"Failed to push {src.name}"
+                )
 
         return {"status": "added", "name": src.name}
 
@@ -195,11 +286,27 @@ async def add_game(device_id: str, source_path: str, dest_dir: str, unzip: bool 
 @router.delete("/remove-game")
 async def remove_game(device_id: str, file_path: str) -> dict:
     """Remove a single game from a device."""
-    if not ADBManager.check_device_connected(device_id):
-        raise HTTPException(status_code=404, detail=f"Device {device_id} not connected")
+    is_volume = _is_volume_id(device_id)
 
-    success = await ADBManager.delete_file(file_path, device_id)
-    if not success:
-        raise HTTPException(status_code=500, detail=f"Failed to delete {file_path}")
+    if is_volume:
+        # Validate against path traversal
+        base = Path(device_id).resolve()
+        target = Path(file_path).resolve()
+        if not str(target).startswith(str(base)):
+            raise HTTPException(status_code=403, detail="Access denied")
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        try:
+            target.unlink()
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Delete failed: {e}")
+    else:
+        if not ADBManager.check_device_connected(device_id):
+            raise HTTPException(
+                status_code=404, detail=f"Device {device_id} not connected"
+            )
+        success = await ADBManager.delete_file(file_path, device_id)
+        if not success:
+            raise HTTPException(status_code=500, detail=f"Failed to delete {file_path}")
 
     return {"status": "removed", "path": file_path}

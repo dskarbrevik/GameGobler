@@ -4,14 +4,16 @@ import {
   Smartphone,
   Gamepad2,
   Settings2,
+  ArrowUpCircle,
 } from "lucide-react";
 import { DevicePanel } from "./components/DevicePanel";
 import { LibraryPanel } from "./components/LibraryPanel";
 import { DeviceFilesPanel } from "./components/DeviceFilesPanel";
 import { GameManagerPanel } from "./components/GameManagerPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { SetupWizard } from "./components/SetupWizard";
 import { useToast } from "./components/Toast";
-import { useDevices, useSystems } from "./hooks/useApi";
+import { useDevices, useSettings, useSystems, useVersion } from "./hooks/useApi";
 import { useQueryClient } from "@tanstack/react-query";
 import { formatVolume } from "./api/client";
 import type { InitializeEvent } from "./types";
@@ -199,6 +201,22 @@ function LibraryPage() {
 }
 
 function App() {
+  const { data: settingsData, isLoading: settingsLoading } = useSettings();
+  const versionInfo = useVersion();
+  const queryClient = useQueryClient();
+
+  const needsSetup = !settingsLoading && !settingsData?.library_path;
+
+  if (settingsLoading) return null;
+
+  if (needsSetup) {
+    return (
+      <SetupWizard
+        onComplete={() => void queryClient.invalidateQueries({ queryKey: ["settings"] })}
+      />
+    );
+  }
+
   return (
     <div className="app">
       <nav className="sidebar">
@@ -216,6 +234,17 @@ function App() {
             <span>{label}</span>
           </NavLink>
         ))}
+        {versionInfo.data?.update_available && (
+          <a
+            className="update-banner"
+            href={versionInfo.data.release_url ?? "#"}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <ArrowUpCircle size={14} />
+            v{versionInfo.data.latest} available
+          </a>
+        )}
       </nav>
 
       <main className="content">

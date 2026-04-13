@@ -24,6 +24,14 @@ packages = ["gamegobler"]
 
 [dependency-groups]
 dev = [
+    "pyinstaller>=6.19.0",
+    "pyright>=1.1.400",
     "pytest>=8.4.2",
+    "pytest-asyncio>=0.25.0",
+    "respx>=0.22.0",
     "ruff>=0.14.4",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

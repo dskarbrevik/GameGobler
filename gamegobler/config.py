@@ -13,13 +13,12 @@ def expand_env_vars(value: str) -> str:
     Supports ${VAR_NAME} syntax. If the environment variable is not set,
     raises a ValueError.
     """
+
     def replacer(match):
         var_name = match.group(1)
         env_value = os.getenv(var_name)
         if env_value is None:
-            raise ValueError(
-                f"Environment variable '{var_name}' is not set"
-            )
+            raise ValueError(f"Environment variable '{var_name}' is not set")
         return env_value
 
     return re.sub(r"\$\{([^}]+)\}", replacer, value)
@@ -106,7 +105,9 @@ class TransferConfig(BaseModel):
 
     @field_validator("systems")
     @classmethod
-    def validate_systems(cls, v: list[TransferSystemConfig]) -> list[TransferSystemConfig]:
+    def validate_systems(
+        cls, v: list[TransferSystemConfig]
+    ) -> list[TransferSystemConfig]:
         if not v:
             raise ValueError("At least one system must be configured")
         return v
