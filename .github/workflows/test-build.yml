@@ -177,9 +177,27 @@ jobs:
           APPIMAGE=$(find artifact/ -name '*.AppImage' | head -1)
           chmod +x "$APPIMAGE"
           "$APPIMAGE" --appimage-extract
-          xvfb-run --auto-servernum squashfs-root/gamegobler-tauri &
+
+          # Debug: find the actual binary inside the extracted AppImage
+          echo "── Extracted contents ──"
+          find squashfs-root/ -maxdepth 2 -type f -executable | head -20
+
+          # The Tauri binary may be named differently; find it
+          BINARY=$(find squashfs-root/ -maxdepth 1 -type f -executable | head -1)
+          echo "Launching: $BINARY"
+          xvfb-run --auto-servernum "$BINARY" &
           APP_PID=$!
           echo "APP_PID=$APP_PID" >> "$GITHUB_ENV"
+          # Give it a moment to start
+          sleep 3
+          # Check if process is still alive
+          if kill -0 $APP_PID 2>/dev/null; then
+            echo "✓ App process $APP_PID is running"
+          else
+            echo "✗ App process died immediately"
+            # Check for crash logs
+            wait $APP_PID 2>/dev/null || echo "Exit code: $?"
+          fi
 
       # ── macOS: mount DMG and launch ──
       - name: "macOS: mount DMG & launch app"
@@ -227,12 +245,14 @@ jobs:
         shell: bash
         run: |
           echo "── /api/health ──"
-          curl -sf http://127.0.0.1:8000/api/health | tee /dev/stderr | grep -q "ok"
-          echo ""
+          HEALTH=$(curl -sf http://127.0.0.1:8000/api/health)
+          echo "$HEALTH"
+          echo "$HEALTH" | grep -q "ok"
 
           echo "── /api/version ──"
-          curl -sf http://127.0.0.1:8000/api/version | tee /dev/stderr | grep -q "version"
-          echo ""
+          VERSION=$(curl -sf http://127.0.0.1:8000/api/version)
+          echo "$VERSION"
+          echo "$VERSION" | grep -q "version"
 
           echo "── /api/settings ──"
           STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/settings)
