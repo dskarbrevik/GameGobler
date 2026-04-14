@@ -75,7 +75,7 @@ Goal: Non-technical users can download and run GameGobler with minimal setup.
 | 3.3 | GitHub Releases workflow                    | Done        | `.github/workflows/release.yml` — `v*` tag trigger; matrix build (Linux, macOS, Windows); PyInstaller + `softprops/action-gh-release` |
 | 3.4 | First-run wizard                            | Done        | `SetupWizard` component shown when `library_path` is empty; guided path selection; saves settings and transitions to main UI |
 | 3.5 | In-app update check                         | Done        | `GET /api/version` compares `__version__` against latest GitHub Release; sidebar banner with link when update available; 1 h stale time |
-| 3.6 | Package manager distribution                | Done        | `packaging/` dir: Homebrew formula, Flatpak manifest + metainfo, winget manifests; `update-manifests.sh` patches SHA256s from a release |
+| 3.6 | Package manager distribution                | Deferred    | Removed premature scaffolds; will revisit when submitting to Homebrew Cask, Flathub, winget-pkgs |
 | 3.7 | Landing page / docs site                    | Done        | `docs/index.html` — static landing page; `.github/workflows/pages.yml` deploys to GitHub Pages on push to main |
 
 **Exit criteria:** A retro gaming enthusiast can download a single file, run it, and manage their ROM library without touching a terminal.

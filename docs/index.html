@@ -199,40 +199,37 @@
 
 <!-- ── Download ──────────────────────────────────────────────────────── -->
 <section id="download">
-  <h2>Download</h2>
-  <p class="subtitle">Grab the latest release for your platform. Single binary, no install required.</p>
+  <h2>Download <span id="version-badge" style="font-size:0.6em; color:var(--accent); vertical-align:middle;"></span></h2>
+  <p class="subtitle">Grab the latest release for your platform.</p>
   <div class="download-cards">
     <div class="download-card">
       <div class="os">🍎</div>
       <h3>macOS</h3>
-      <p class="note">Apple Silicon &amp; Intel</p>
-      <a href="https://github.com/dskarbrevik/GameGobler/releases/latest/download/GameGobler-macos" class="btn btn-primary">Download</a>
-      <div class="pkg-install">
-        Or via Homebrew:
-        <code>brew install dskarbrevik/gamegobler/gamegobler</code>
-      </div>
+      <p class="note">Apple Silicon (aarch64)</p>
+      <a id="dl-macos" href="https://github.com/dskarbrevik/GameGobler/releases/latest" class="btn btn-primary">Download .dmg</a>
     </div>
     <div class="download-card">
       <div class="os">🐧</div>
       <h3>Linux</h3>
-      <p class="note">x86_64</p>
-      <a href="https://github.com/dskarbrevik/GameGobler/releases/latest/download/GameGobler-linux" class="btn btn-primary">Download</a>
+      <p class="note">x86_64 &middot; .deb .rpm .AppImage</p>
+      <a id="dl-linux" href="https://github.com/dskarbrevik/GameGobler/releases/latest" class="btn btn-primary">Download .AppImage</a>
       <div class="pkg-install">
-        Or via Flatpak:
-        <code>flatpak install flathub com.github.dskarbrevik.GameGobler</code>
+        Also available: <a href="https://github.com/dskarbrevik/GameGobler/releases/latest" style="color:var(--green);">.deb</a> and <a href="https://github.com/dskarbrevik/GameGobler/releases/latest" style="color:var(--green);">.rpm</a>
       </div>
     </div>
     <div class="download-card">
       <div class="os">🪟</div>
       <h3>Windows</h3>
-      <p class="note">x64</p>
-      <a href="https://github.com/dskarbrevik/GameGobler/releases/latest/download/GameGobler-windows.exe" class="btn btn-primary">Download</a>
+      <p class="note">x64 &middot; Installer or MSI</p>
+      <a id="dl-windows" href="https://github.com/dskarbrevik/GameGobler/releases/latest" class="btn btn-primary">Download Installer</a>
       <div class="pkg-install">
-        Or via winget:
-        <code>winget install dskarbrevik.GameGobler</code>
+        Also available: <a href="https://github.com/dskarbrevik/GameGobler/releases/latest" style="color:var(--green);">.msi</a>
       </div>
     </div>
   </div>
+  <p style="text-align:center; margin-top:1.5rem;">
+    <a href="https://github.com/dskarbrevik/GameGobler/releases" style="color:var(--muted); font-size:0.9rem;">View all releases on GitHub →</a>
+  </p>
 </section>
 
 <!-- ── Quick Start ───────────────────────────────────────────────────── -->
@@ -242,8 +239,8 @@
   <div class="steps">
     <div class="step">
       <div>
-        <h3>Download &amp; run</h3>
-        <p>Download the binary for your OS above. On macOS/Linux, make it executable with <code>chmod +x GameGobler-*</code>, then run it. On Windows, just double-click the <code>.exe</code>.</p>
+        <h3>Install the app</h3>
+        <p>Download the installer for your OS above. On macOS, open the <code>.dmg</code> and drag GameGobler to Applications. On Windows, run the installer. On Linux, use the <code>.deb</code>, <code>.rpm</code>, or <code>.AppImage</code>.</p>
       </div>
     </div>
     <div class="step">
@@ -276,6 +273,46 @@
   </div>
   <p>MIT License &middot; GameGobler</p>
 </footer>
+
+<script>
+(async () => {
+  try {
+    const res = await fetch('https://api.github.com/repos/dskarbrevik/GameGobler/releases/latest');
+    if (!res.ok) return;
+    const rel = await res.json();
+    const tag = rel.tag_name;
+    const v = tag.replace(/^v/, '');
+    const badge = document.getElementById('version-badge');
+    if (badge) badge.textContent = tag;
+    const assets = rel.assets || [];
+    const find = (pattern) => {
+      const a = assets.find(a => pattern.test(a.name));
+      return a ? a.browser_download_url : null;
+    };
+    const dmg = find(/\.dmg$/);
+    const appimage = find(/\.AppImage$/);
+    const deb = find(/\.deb$/);
+    const rpm = find(/\.rpm$/);
+    const exe = find(/setup\.exe$/);
+    const msi = find(/\.msi$/);
+    if (dmg) document.getElementById('dl-macos').href = dmg;
+    if (appimage) document.getElementById('dl-linux').href = appimage;
+    if (exe) document.getElementById('dl-windows').href = exe;
+    // Update "also available" links
+    const linuxCard = document.getElementById('dl-linux').closest('.download-card');
+    if (linuxCard) {
+      const links = linuxCard.querySelectorAll('.pkg-install a');
+      if (links[0] && deb) links[0].href = deb;
+      if (links[1] && rpm) links[1].href = rpm;
+    }
+    const winCard = document.getElementById('dl-windows').closest('.download-card');
+    if (winCard) {
+      const links = winCard.querySelectorAll('.pkg-install a');
+      if (links[0] && msi) links[0].href = msi;
+    }
+  } catch (e) { /* fallback: links go to /releases/latest */ }
+})();
+</script>
 
 </body>
 </html>
