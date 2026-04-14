@@ -64,14 +64,7 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             "quit" => {
-                // Kill sidecar before exiting
-                if let Some(state) = app.try_state::<SidecarChild>() {
-                    if let Ok(mut guard) = state.0.lock() {
-                        if let Some(child) = guard.take() {
-                            let _ = child.kill();
-                        }
-                    }
-                }
+                kill_sidecar(app);
                 app.exit(0);
             }
             _ => {}
@@ -88,6 +81,17 @@ fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build(app)?;
 
     Ok(())
+}
+
+/// Kill the sidecar process if it's still running.
+fn kill_sidecar(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<SidecarChild>() {
+        if let Ok(mut guard) = state.0.lock() {
+            if let Some(child) = guard.take() {
+                let _ = child.kill();
+            }
+        }
+    }
 }
 
 struct SidecarChild(std::sync::Mutex<Option<tauri_plugin_shell::process::CommandChild>>);
@@ -147,6 +151,11 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                kill_sidecar(app);
+            }
+        });
 }
