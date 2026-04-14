@@ -144,6 +144,42 @@ def _mount_frontend() -> None:
 _mount_frontend()
 
 
+def _kill_stale_server(host: str, port: int) -> None:
+    """If a previous GameGobler backend is still running on this port, kill it."""
+    import socket
+    import signal
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(1)
+        sock.connect((host, port))
+        sock.close()
+    except (ConnectionRefusedError, OSError):
+        return  # Port is free
+
+    # Port is occupied — try to find and kill the process (Unix only)
+    if sys.platform != "win32":
+        import subprocess
+
+        try:
+            result = subprocess.run(
+                ["lsof", "-ti", f":{port}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            for pid_str in result.stdout.strip().split("\n"):
+                if pid_str.strip():
+                    pid = int(pid_str.strip())
+                    if pid != os.getpid():
+                        os.kill(pid, signal.SIGTERM)
+            import time
+
+            time.sleep(0.5)
+        except Exception:
+            pass
+
+
 def start() -> None:
     import uvicorn
 
@@ -151,6 +187,8 @@ def start() -> None:
     # Override with GAMEGOBLER_HOST / GAMEGOBLER_PORT env vars.
     host = os.environ.get("GAMEGOBLER_HOST", "127.0.0.1")
     port = int(os.environ.get("GAMEGOBLER_PORT", "8000"))
+
+    _kill_stale_server(host, port)
 
     frozen = getattr(sys, "frozen", False)
     # Disable reload when frozen (PyInstaller) or when frontend is bundled

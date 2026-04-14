@@ -19,7 +19,7 @@ beforeEach(() => {
     }
     if (url.includes("/api/version")) {
       return Promise.resolve(
-        new Response(JSON.stringify({ version: "0.1.1", latest: null, update_available: false, release_url: null }), {
+        new Response(JSON.stringify({ version: "0.1.2", latest: null, update_available: false, release_url: null }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
