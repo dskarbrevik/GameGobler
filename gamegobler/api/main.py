@@ -20,8 +20,12 @@ app = FastAPI(
 )
 
 # CORS: configurable via GAMEGOBLER_CORS_ORIGINS env var (comma-separated).
-# Defaults to common local dev origins.
-_default_origins = "http://localhost:5173,http://localhost:8000,http://127.0.0.1:5173,http://127.0.0.1:8000"
+# Defaults to common local dev origins + Tauri webview origins.
+_default_origins = (
+    "http://localhost:5173,http://localhost:8000,"
+    "http://127.0.0.1:5173,http://127.0.0.1:8000,"
+    "tauri://localhost,https://tauri.localhost"
+)
 _origins = os.environ.get("GAMEGOBLER_CORS_ORIGINS", _default_origins)
 app.add_middleware(
     CORSMiddleware,
