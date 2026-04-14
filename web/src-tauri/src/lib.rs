@@ -7,13 +7,21 @@ use tauri_plugin_updater::UpdaterExt;
 /// Start the Python backend sidecar and wait for it to be ready.
 fn spawn_backend(app: &tauri::AppHandle) {
     let shell = app.shell();
-    let sidecar = shell
-        .sidecar("gamegobler-api")
-        .expect("failed to create gamegobler-api sidecar command");
+    let sidecar = match shell.sidecar("gamegobler-api") {
+        Ok(cmd) => cmd,
+        Err(e) => {
+            log::error!("failed to create gamegobler-api sidecar command: {}", e);
+            return;
+        }
+    };
 
-    let (mut rx, child) = sidecar
-        .spawn()
-        .expect("failed to spawn gamegobler-api sidecar");
+    let (mut rx, child) = match sidecar.spawn() {
+        Ok(result) => result,
+        Err(e) => {
+            log::error!("failed to spawn gamegobler-api sidecar: {}", e);
+            return;
+        }
+    };
 
     // Store the child so we can kill it on exit.
     app.manage(SidecarChild(std::sync::Mutex::new(Some(child))));

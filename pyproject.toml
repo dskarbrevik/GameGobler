@@ -1,6 +1,6 @@
 [project]
 name = "gamegobler"
-version = "0.1.0"
+version = "0.1.1"
 description = "ROM library manager web app with device sync"
 readme = "README.md"
 requires-python = ">=3.12"

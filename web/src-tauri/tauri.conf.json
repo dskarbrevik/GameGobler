@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "GameGobler",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.github.dskarbrevik.gamegobler",
   "build": {
     "frontendDist": "../dist",
@@ -38,7 +38,7 @@
     ],
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "signingIdentity": null,
+      "signingIdentity": "-",
       "entitlements": null
     },
     "windows": {
