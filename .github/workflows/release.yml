@@ -4,9 +4,17 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.1)"
+        required: true
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build-sidecar:
@@ -146,8 +154,8 @@ jobs:
         with:
           projectPath: web
           tauriScript: npx tauri
-          tagName: ${{ github.ref_name }}
-          releaseName: "GameGobler ${{ github.ref_name }}"
+          tagName: ${{ env.RELEASE_TAG }}
+          releaseName: "GameGobler ${{ env.RELEASE_TAG }}"
           releaseBody: "See the full changelog in the GitHub release notes."
           releaseDraft: false
           prerelease: false
