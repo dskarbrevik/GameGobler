@@ -121,29 +121,26 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # ── macOS code signing & notarization ──
-          # Set these secrets in repo Settings → Secrets:
+          # Uncomment these when you have an Apple Developer cert ($99/yr):
           #   APPLE_CERTIFICATE        - Base64-encoded .p12 Developer ID cert
           #   APPLE_CERTIFICATE_PASSWORD - Password for the .p12
           #   APPLE_SIGNING_IDENTITY   - e.g. "Developer ID Application: Name (TEAMID)"
           #   APPLE_ID                 - Apple ID email
           #   APPLE_PASSWORD           - App-specific password
           #   APPLE_TEAM_ID            - 10-char team ID
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          # APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # APPLE_ID: ${{ secrets.APPLE_ID }}
+          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           # ── Windows code signing ──
-          # Set these secrets for Authenticode signing:
+          # Uncomment these when you have an Authenticode cert:
           #   WINDOWS_CERTIFICATE      - Base64-encoded .pfx
           #   WINDOWS_CERTIFICATE_PASSWORD - Password for the .pfx
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          # WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          # WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
           # ── Tauri updater signing key ──
-          # Generate with: npx tauri signer generate -w ~/.tauri/gamegobler.key
-          #   TAURI_SIGNING_PRIVATE_KEY       - Contents of the .key file
-          #   TAURI_SIGNING_PRIVATE_KEY_PASSWORD - Password used during generation
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
