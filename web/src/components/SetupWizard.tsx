@@ -2,9 +2,19 @@ import { useState } from "react";
 import { Gamepad2, FolderOpen, ArrowRight, Loader2 } from "lucide-react";
 import { useUpdateSettings } from "../hooks/useApi";
 
+const isTauri =
+  typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
+
 export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [libraryPath, setLibraryPath] = useState("");
   const updateMut = useUpdateSettings();
+
+  const handleBrowse = async () => {
+    if (!isTauri) return;
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: true, multiple: false });
+    if (selected) setLibraryPath(selected as string);
+  };
 
   const handleFinish = () => {
     if (!libraryPath.trim()) return;
@@ -35,15 +45,26 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
             Point to the folder that contains your ROM sub-folders (e.g.{" "}
             <code>nes/</code>, <code>snes/</code>, <code>nds/</code>).
           </p>
-          <input
-            className="settings-input"
-            type="text"
-            value={libraryPath}
-            onChange={(e) => setLibraryPath(e.target.value)}
-            placeholder="/path/to/roms"
-            autoFocus
-            onKeyDown={(e) => e.key === "Enter" && handleFinish()}
-          />
+          <div className="path-input-row">
+            <input
+              className="settings-input"
+              type="text"
+              value={libraryPath}
+              onChange={(e) => setLibraryPath(e.target.value)}
+              placeholder="/path/to/roms"
+              autoFocus
+              onKeyDown={(e) => e.key === "Enter" && handleFinish()}
+            />
+            {isTauri && (
+              <button
+                className="btn-browse"
+                type="button"
+                onClick={() => void handleBrowse()}
+              >
+                Browse…
+              </button>
+            )}
+          </div>
           {updateMut.isError && (
             <p className="error-msg">
               {updateMut.error instanceof Error

@@ -1603,6 +1603,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
   min-height: 100vh;
   padding: 24px;
 }
@@ -1664,6 +1665,33 @@ body {
 .setup-footer {
   display: flex;
   justify-content: flex-end;
+}
+
+.path-input-row {
+  display: flex;
+  gap: 8px;
+}
+
+.path-input-row .settings-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.btn-browse {
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-bright);
+  font: inherit;
+  font-size: 13px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.btn-browse:hover {
+  background: var(--bg-active);
 }
 
 /* ─── Update Banner ────────────────────────────────── */

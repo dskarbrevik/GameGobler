@@ -2,6 +2,9 @@ import { useState } from "react";
 import { Settings2, Save, Loader2 } from "lucide-react";
 import { useSettings, useUpdateSettings } from "../hooks/useApi";
 
+const isTauri =
+  typeof window !== "undefined" && !!window.__TAURI_INTERNALS__;
+
 export function SettingsPanel() {
   const { data: settings, isLoading } = useSettings();
   const updateMut = useUpdateSettings();
@@ -39,6 +42,13 @@ function SettingsForm({
   const [libraryPath, setLibraryPath] = useState(initialLibraryPath);
   const [unzipOnTransfer, setUnzipOnTransfer] = useState(initialUnzipOnTransfer);
 
+  const handleBrowse = async () => {
+    if (!isTauri) return;
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: true, multiple: false });
+    if (selected) setLibraryPath(selected as string);
+  };
+
   const handleSave = () => {
     updateMut.mutate({ library_path: libraryPath || undefined, unzip_on_transfer: unzipOnTransfer });
   };
@@ -57,13 +67,24 @@ function SettingsForm({
               <span className="settings-row-label">ROM Library Path</span>
               <span className="settings-row-desc">Local directory containing ROM folders (nes/, snes/, nds/, etc.)</span>
             </div>
-            <input
-              className="settings-input"
-              type="text"
-              value={libraryPath}
-              onChange={(e) => setLibraryPath(e.target.value)}
-              placeholder="/path/to/roms"
-            />
+            <div className="path-input-row">
+              <input
+                className="settings-input"
+                type="text"
+                value={libraryPath}
+                onChange={(e) => setLibraryPath(e.target.value)}
+                placeholder="/path/to/roms"
+              />
+              {isTauri && (
+                <button
+                  className="btn-browse"
+                  type="button"
+                  onClick={() => void handleBrowse()}
+                >
+                  Browse…
+                </button>
+              )}
+            </div>
           </div>
         </section>
 
