@@ -158,6 +158,11 @@ function GameList({
   const [scrapeProgress, setScrapeProgress] = useState<ScrapeEvent | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const cancelScrape = useCallback(() => {
+    abortRef.current?.abort();
+    setScraping(false);
+  }, []);
+
   const startScrape = useCallback(() => {
     if (scraping) return;
     setScraping(true);
@@ -265,12 +270,11 @@ function GameList({
         {canScrape && (
           <button
             className="btn-scrape"
-            onClick={startScrape}
-            disabled={scraping}
+            onClick={scraping ? cancelScrape : startScrape}
             title={coverStats ? `${coverStats.with_cover}/${coverStats.total_games} covers` : "Scrape box art"}
           >
             <Download size={14} />
-            {scraping ? "Scraping..." : "Scrape Box Art"}
+            {scraping ? "Cancel Scrape" : "Scrape Box Art"}
           </button>
         )}
         {!canScrape && (
@@ -300,9 +304,10 @@ function GameList({
 
       <div className="rom-filters">
         <div className="search-bar">
-          <Search size={14} />
+          <Search size={14} aria-hidden="true" />
           <input
             type="text"
+            aria-label="Search games"
             placeholder="Search titles..."
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
@@ -374,7 +379,9 @@ function GameList({
                           loading="lazy"
                         />
                       ) : (
-                        <div className="rom-cover-placeholder" />
+                        <div className="rom-cover-placeholder">
+                          <ImageOff size={12} />
+                        </div>
                       )}
                     </td>
                     <td className="rom-td-title">

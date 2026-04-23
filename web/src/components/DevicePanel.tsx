@@ -163,46 +163,54 @@ export function DevicePanel({
                 <span className="device-id">{device.label || device.device_id}</span>
                 {device.device_type === "volume" && (
                   <>
-                    <span
+                    <button
+                      type="button"
                       className="btn-remove-device"
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleEject(device.device_id);
                       }}
                       title="Eject device"
+                      aria-label={`Eject ${device.label || device.device_id}`}
                     >
                       <Power size={12} />
-                    </span>
-                    <span
+                    </button>
+                    <button
+                      type="button"
                       className="btn-remove-device"
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleUnregister(device.device_id);
                       }}
                       title="Remove device"
+                      aria-label={`Remove ${device.label || device.device_id}`}
                     >
                       <X size={12} />
-                    </span>
+                    </button>
                   </>
                 )}
               </div>
-              {Object.entries(device.storage).map(([type, info]) => (
-                <div key={type} className="storage-row">
-                  {type === "internal" ? (
-                    <Database size={12} />
-                  ) : (
-                    <HardDrive size={12} />
-                  )}
-                  <span className="storage-label">{type}</span>
-                  {info.free != null && info.total != null ? (
-                    <span className="storage-size">
-                      {formatBytes(info.free)} free / {formatBytes(info.total)}
-                    </span>
-                  ) : (
-                    <span className="storage-size muted">Unknown</span>
-                  )}
-                </div>
-              ))}
+              {Object.entries(device.storage).map(([type, info]) => {
+                const storageKeys = Object.keys(device.storage);
+                const label = type === "internal" ? "internal" : type === "sd" ? "SD card" : "volume";
+                return (
+                  <div key={type} className="storage-row">
+                    {type === "internal" ? (
+                      <Database size={12} />
+                    ) : (
+                      <HardDrive size={12} />
+                    )}
+                    {storageKeys.length > 1 && <span className="storage-label">{label}</span>}
+                    {info.free != null && info.total != null ? (
+                      <span className="storage-size">
+                        {formatBytes(info.free)} free / {formatBytes(info.total)}
+                      </span>
+                    ) : (
+                      <span className="storage-size muted">Unknown</span>
+                    )}
+                  </div>
+                );
+              })}
             </button>
           ))}
         </div>

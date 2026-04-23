@@ -225,3 +225,59 @@ export const COVER_STATS = {
 };
 
 export const LIBRARY_PATH = "/home/user/roms";
+
+/**
+ * Filenames returned by GET /api/devices/games (string[], not objects).
+ * This is the per-system list of game filenames on the device.
+ */
+export const DEVICE_GAME_NAMES_GBA = ["Metroid Fusion (USA).gba"];
+
+/**
+ * Files returned when browsing a subdirectory on a device (e.g. /gba).
+ */
+export const DEVICE_FILES_SUBDIR = [
+  { name: "Metroid Fusion (USA).gba", path: "/gba/Metroid Fusion (USA).gba", is_dir: false },
+  { name: "Pokemon - Fire Red Version (USA, Europe) (Rev 1).gba", path: "/gba/Pokemon - Fire Red Version (USA, Europe) (Rev 1).gba", is_dir: false },
+];
+
+/**
+ * Extended GBA game list with diverse metadata for filter/sort tests.
+ * Includes games with different regions, release types, features, and languages.
+ */
+export const GBA_GAMES_EXTENDED = [
+  ...GBA_GAMES,
+  {
+    name: "Advance Wars (Europe) (Beta).gba",
+    size: 4_194_304,
+    has_cover: false,
+    meta: {
+      title: "Advance Wars",
+      regions: ["Europe"],
+      languages: ["En", "De", "Fr"],
+      release_type: "Beta",
+      release_num: null,
+      revision: null,
+      features: ["Rumble"],
+      date: null,
+      is_bios: false,
+      extension: "gba",
+    },
+  },
+  {
+    name: "Mario Kart - Super Circuit (Japan).gba",
+    size: 12_582_912,
+    has_cover: true,
+    meta: {
+      title: "Mario Kart - Super Circuit",
+      regions: ["Japan"],
+      languages: ["Ja"],
+      release_type: null,
+      release_num: null,
+      revision: "Rev 2",
+      features: [],
+      date: null,
+      is_bios: false,
+      extension: "gba",
+    },
+  },
+];

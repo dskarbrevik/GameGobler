@@ -123,6 +123,18 @@ def _get_library_path() -> Path:
     return settings.get_library_path()
 
 
+def _validate_system_dir(library_path: Path, system_name: str) -> Path:
+    """Resolve system_dir and ensure it stays within library_path (path-traversal guard)."""
+    system_dir = (library_path / system_name).resolve()
+    try:
+        system_dir.relative_to(library_path.resolve())
+    except ValueError:
+        from fastapi import HTTPException as _HTTPException
+
+        raise _HTTPException(status_code=400, detail="Invalid system name")
+    return system_dir
+
+
 @router.get("/search")
 async def search_games(q: str, limit: int = 200) -> list[SearchResult]:
     """Search games across all systems by title."""
@@ -193,7 +205,7 @@ async def list_systems() -> list[SystemInfo]:
 async def list_games(system_name: str) -> list[GameFile]:
     """List all games for a specific system."""
     library_path = _get_library_path()
-    system_dir = library_path / system_name
+    system_dir = _validate_system_dir(library_path, system_name)
 
     if not system_dir.exists():
         raise HTTPException(status_code=404, detail=f"System '{system_name}' not found")
@@ -257,6 +269,7 @@ def _resolve_cover(game_stem: str, cover_dir: Path) -> Path | None:
 async def get_game_cover(system_name: str, game_name: str):
     """Serve the cover art image for a game, if available."""
     library_path = _get_library_path()
+    _validate_system_dir(library_path, system_name)  # path-traversal guard
     cover_dir = _find_cover_dir(library_path, system_name)
     if not cover_dir:
         raise HTTPException(status_code=404, detail="No cover art directory found")
@@ -280,7 +293,7 @@ async def get_game_cover(system_name: str, game_name: str):
 async def get_cover_stats(system_name: str) -> dict:
     """Get cover art statistics for a system."""
     library_path = _get_library_path()
-    system_dir = library_path / system_name
+    system_dir = _validate_system_dir(library_path, system_name)
     if not system_dir.exists():
         raise HTTPException(status_code=404, detail=f"System '{system_name}' not found")
 
@@ -311,7 +324,7 @@ async def get_library_path() -> dict:
 async def scrape_system_covers(system_name: str):
     """Stream cover art downloads for a system via SSE."""
     library_path = _get_library_path()
-    system_dir = library_path / system_name
+    system_dir = _validate_system_dir(library_path, system_name)
     if not system_dir.exists():
         raise HTTPException(status_code=404, detail=f"System '{system_name}' not found")
     if system_name not in SYSTEM_MAP:

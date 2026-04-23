@@ -32,7 +32,7 @@ function DevicesPage() {
   const [initProgress, setInitProgress] = useState<InitializeEvent | null>(null);
   const { data: devices = [], isLoading } = useDevices();
   const queryClient = useQueryClient();
-  const { toast, confirm } = useToast();
+  const { toast, confirm, prompt: toastPrompt } = useToast();
 
   // Clear stale selection when device is no longer in the list (e.g. remounted at different path)
   useEffect(() => {
@@ -46,7 +46,11 @@ function DevicesPage() {
 
   const handleFormat = async () => {
     if (!selectedDevice || !selectedInfo) return;
-    const label = prompt("Volume label (max 11 chars):", "EMUROMS");
+    const label = await toastPrompt({
+      message: "Volume label (1–11 characters):",
+      defaultValue: "EMUROMS",
+      placeholder: "EMUROMS",
+    });
     if (!label) return;
     const ok = await confirm({
       message: `⚠️ FORMAT will ERASE ALL DATA on "${selectedInfo.label}". Continue?`,

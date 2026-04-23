@@ -60,6 +60,6 @@ describe("DevicePanel", () => {
       />
     );
     expect(screen.getByText("Test Device")).toBeInTheDocument();
-    expect(screen.getByText("internal")).toBeInTheDocument();
+    expect(screen.getByText(/1\.0 GB free/)).toBeInTheDocument();
   });
 });

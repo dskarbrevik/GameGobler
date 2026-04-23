@@ -101,9 +101,10 @@ async def version() -> dict:
             data = resp.json()
             tag: str = data.get("tag_name", "")
             latest = tag.lstrip("v")
-            result["latest"] = latest
-            result["release_url"] = data.get("html_url")
-            result["update_available"] = latest != __version__
+            if latest:
+                result["latest"] = latest
+                result["release_url"] = data.get("html_url")
+                result["update_available"] = latest != __version__
     except Exception:
         pass  # Network errors are non-fatal
     return result

@@ -34,6 +34,7 @@ export function DeviceFilesPanel({ deviceId, deviceType = "android" }: Props) {
   const {
     data: files = [],
     isLoading,
+    isError,
     refetch,
   } = useDeviceFiles(deviceId, currentPath);
   const removeMut = useRemoveGame();
@@ -126,6 +127,13 @@ export function DeviceFilesPanel({ deviceId, deviceType = "android" }: Props) {
 
       {isLoading ? (
         <p className="muted">Loading files...</p>
+      ) : isError ? (
+        <p className="muted">
+          Failed to load files.{" "}
+          <button className="btn-link" onClick={() => void refetch()}>
+            Retry
+          </button>
+        </p>
       ) : (
         <div className="file-list">
           {currentPath !== "/" && (

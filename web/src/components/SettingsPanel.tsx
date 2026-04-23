@@ -124,6 +124,13 @@ function SettingsForm({
           {updateMut.isSuccess && (
             <span className="success-msg">Saved to ~/.gamegobler/</span>
           )}
+          {updateMut.isError && (
+            <span className="error-msg">
+              {updateMut.error instanceof Error
+                ? updateMut.error.message
+                : "Failed to save settings"}
+            </span>
+          )}
         </div>
       </div>
     </div>

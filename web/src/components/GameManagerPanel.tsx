@@ -27,7 +27,7 @@ export function GameManagerPanel({ deviceId }: Props) {
   const [removedKeys, setRemovedKeys] = useState<Set<string>>(new Set());
 
   const queryClient = useQueryClient();
-  const { toast } = useToast();
+  const { toast, confirm: confirmFn } = useToast();
   const { data: systems = [] } = useSystems();
   const { data: libraryGames = [] } = useGames(selectedSystem);
   const { data: deviceGames = [] } = useDeviceGames(deviceId, selectedSystem);
@@ -142,6 +142,12 @@ export function GameManagerPanel({ deviceId }: Props) {
   const handleRemove = async (gameName: string, system?: string) => {
     const sys = system ?? selectedSystem;
     if (!sys) return;
+    const ok = await confirmFn({
+      message: `Remove "${gameName}" from device?`,
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     const key = system ? `${system}/${gameName}` : gameName;
     setRemoving((prev) => new Set(prev).add(key));
     try {

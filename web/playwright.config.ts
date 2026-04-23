@@ -14,14 +14,12 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
+  /* Tauri renders via WebKit — test the engine that matches production.
+     Chromium/Firefox can be enabled for broader coverage when available. */
   projects: [
     {
       name: "webkit",
       use: { ...devices["Desktop Safari"] },
-    },
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
     },
   ],
   webServer: {
